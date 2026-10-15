@@ -48,7 +48,7 @@ window:SetCharacterInfo({
 })
 
 --== module loader ==--
-local BASE = "https://raw.githubusercontent.com/rawn1s/kazka-testuojam-haha/refs/heads/main/games/"
+local BASE = "https://raw.githubusercontent.com/SBJ369/Sakka/refs/heads/main/games/"
 local moduleCache = {}
 
 local function loadModule(path)
