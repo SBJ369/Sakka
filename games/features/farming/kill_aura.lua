@@ -1,13 +1,13 @@
+-- games/features/farming/kill_aura.lua
+
 local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local LocalPlayer       = Players.LocalPlayer
 
 return function(ctx)
-	local state = ctx.state
 	local M = {}
-	local conn
-	local running = false
+	local running    = false
 	local loopThread = nil
 
 	local SignalEvent = ReplicatedStorage
@@ -17,52 +17,9 @@ return function(ctx)
 		:WaitForChild("SignalEvent")
 		:WaitForChild("Event")
 
-	local COMBO_TIMINGS = { 0.13, 0, 0, 0, 0.15 }
-	local COMBO_DELAY   = 0.15
-	local COMBO_COOLDOWN = 1.2 
-
-	local function getRegionFolders()
-	    local regions = workspace.Humanoids.Regions
-	    local folders = {}
-	    for _, region in ipairs(regions:GetChildren()) do
-	        local active = region:FindFirstChild("ActiveNpcs")
-	        if active then
-	            table.insert(folders, active)
-	        end
- 		end
-		return folders
-	end
-	
-	local function getClosestInRange(myHRP, radius)
-		local closest = nil
-		local shortestDist = radius
-
-		for _, activeNpcs in ipairs(getRegionFolders()) do
-			for _, container in ipairs(activeNpcs:GetChildren()) do
-				local humanoid = container:FindFirstChildOfClass("Humanoid")
-				if not humanoid then
-					for _, child in ipairs(container:GetChildren()) do
-						humanoid = child:FindFirstChildOfClass("Humanoid")
-						if humanoid then break end
-					end
-				end
-
-				if humanoid and humanoid.Health > 0 then
-					local hrp = humanoid.Parent:FindFirstChild("HumanoidRootPart")
-					if hrp then
-						local dist = (hrp.Position - myHRP.Position).Magnitude
-						if dist < shortestDist then
-							shortestDist = dist
-							closest = hrp
-						end
-					end
-				end
-			end
-		end
-
-		return closest
-	end
-
+	local COMBO_TIMINGS  = { 0.13, 0, 0, 0, 0.15 }
+	local COMBO_DELAY    = 0.15
+	local COMBO_COOLDOWN = 1.2
 
 	local function fireCombo()
 		for i = 1, 5 do
@@ -76,23 +33,12 @@ return function(ctx)
 
 	local function auraLoop()
 		while running do
-			local char  = LocalPlayer.Character
-			local myHRP = char and char:FindFirstChild("HumanoidRootPart")
-			local radius = state.killAuraRadius or 0
+			local char = LocalPlayer.Character
+			local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
-			if myHRP and radius > 0 then
-				local targetHRP = getClosestInRange(myHRP, radius)
-				if targetHRP then
-					local origin = myHRP.CFrame
-					local offset = (myHRP.Position - targetHRP.Position).Unit * 4
-					myHRP.CFrame = targetHRP.CFrame + offset
-
-					fireCombo()
-
-					if running then
-						myHRP.CFrame = origin
-					end
-				end
+			-- only attack while alive
+			if hum and hum.Health > 0 then
+				fireCombo()
 			end
 
 			if running then
@@ -103,7 +49,7 @@ return function(ctx)
 
 	function M:Start()
 		if running then return end
-		running = true
+		running    = true
 		loopThread = task.spawn(auraLoop)
 	end
 
