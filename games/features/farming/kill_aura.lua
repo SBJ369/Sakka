@@ -1,6 +1,5 @@
 -- games/features/farming/kill_aura.lua
 
-local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players           = game:GetService("Players")
 local LocalPlayer       = Players.LocalPlayer
@@ -31,14 +30,21 @@ return function(ctx)
 		end
 	end
 
-	local function auraLoop()
+	local function attackLoop()
 		while running do
 			local char = LocalPlayer.Character
 			local hum  = char and char:FindFirstChildOfClass("Humanoid")
 
-			-- only attack while alive
 			if hum and hum.Health > 0 then
-				fireCombo()
+				-- check if weapon/combat is pulled out before firing
+				local equippedConfig = LocalPlayer:FindFirstChild("Items_ConfigServer")
+				local isPulledOut = equippedConfig
+					and equippedConfig:FindFirstChild("Equipped")
+					and equippedConfig.Equipped.Value == 1
+
+				if isPulledOut then
+					fireCombo()
+				end
 			end
 
 			if running then
@@ -50,7 +56,7 @@ return function(ctx)
 	function M:Start()
 		if running then return end
 		running    = true
-		loopThread = task.spawn(auraLoop)
+		loopThread = task.spawn(attackLoop)
 	end
 
 	function M:Stop()
