@@ -1,12 +1,14 @@
-local RunService    = game:GetService("RunService")
+local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players       = game:GetService("Players")
-local LocalPlayer   = Players.LocalPlayer
+local Players           = game:GetService("Players")
+local LocalPlayer       = Players.LocalPlayer
 
 return function(ctx)
 	local state = ctx.state
 	local M = {}
 	local conn
+	local running = false
+	local loopThread = nil
 
 	local SignalEvent = ReplicatedStorage
 		:WaitForChild("Communication")
@@ -15,19 +17,16 @@ return function(ctx)
 		:WaitForChild("SignalEvent")
 		:WaitForChild("Event")
 
+	local COMBO_TIMINGS = { 0.13, 0, 0, 0, 0.15 }
+	local COMBO_DELAY   = 0.15
+	local COMBO_COOLDOWN = 1.2 
+
 	local function getRegionFolders()
 		local regions = workspace.Humanoids.Regions
 		local folders = {}
 		for _, region in ipairs(regions:GetChildren()) do
 			local active = region:FindFirstChild("ActiveNpcs")
 			if active then
-				table.insert(folders, active)
-			end
-		end
-		local temp = regions:FindFirstChild("Temporary")
-		if temp then
-			local active = temp:FindFirstChild("ActiveNpcs")
-			if active and not table.find(folders, active) then
 				table.insert(folders, active)
 			end
 		end
@@ -40,9 +39,7 @@ return function(ctx)
 
 		for _, activeNpcs in ipairs(getRegionFolders()) do
 			for _, container in ipairs(activeNpcs:GetChildren()) do
-				local humanoid = container:FindFirstChildOfClass("Humanoid") 
-					or (container:FindFirstChildWhichIsA("Model") 
-						and container:FindFirstChildWhichIsA("Model"):FindFirstChildOfClass("Humanoid"))
+				local humanoid = container:FindFirstChildOfClass("Humanoid")
 				if not humanoid then
 					for _, child in ipairs(container:GetChildren()) do
 						humanoid = child:FindFirstChildOfClass("Humanoid")
@@ -56,7 +53,7 @@ return function(ctx)
 						local dist = (hrp.Position - myHRP.Position).Magnitude
 						if dist < shortestDist then
 							shortestDist = dist
-							closest = humanoid
+							closest = hrp
 						end
 					end
 				end
@@ -66,38 +63,55 @@ return function(ctx)
 		return closest
 	end
 
+
 	local function fireCombo()
-		local timings = { 0.13, 0, 0, 0, 0.15 }
 		for i = 1, 5 do
+			if not running then return end
 			pcall(function()
-				SignalEvent:FireServer("Combat_Service", "Combat", i, false, timings[i], false)
+				SignalEvent:FireServer("Combat_Service", "Combat", i, false, COMBO_TIMINGS[i], false)
 			end)
-			task.wait(0.15)
+			task.wait(COMBO_DELAY)
+		end
+	end
+
+	local function auraLoop()
+		while running do
+			local char  = LocalPlayer.Character
+			local myHRP = char and char:FindFirstChild("HumanoidRootPart")
+			local radius = state.killAuraRadius or 0
+
+			if myHRP and radius > 0 then
+				local targetHRP = getClosestInRange(myHRP, radius)
+				if targetHRP then
+					local origin = myHRP.CFrame
+					local offset = (myHRP.Position - targetHRP.Position).Unit * 4
+					myHRP.CFrame = targetHRP.CFrame + offset
+
+					fireCombo()
+
+					if running then
+						myHRP.CFrame = origin
+					end
+				end
+			end
+
+			if running then
+				task.wait(COMBO_COOLDOWN)
+			end
 		end
 	end
 
 	function M:Start()
-		if conn then return end
-
-		conn = RunService.Heartbeat:Connect(function()
-			local char = LocalPlayer.Character
-			local myHRP = char and char:FindFirstChild("HumanoidRootPart")
-			if not myHRP then return end
-
-			local radius = state.killAuraRadius or 0
-			if radius <= 0 then return end
-
-			local target = getClosestInRange(myHRP, radius)
-			if target then
-				task.spawn(fireCombo)
-			end
-		end)
+		if running then return end
+		running = true
+		loopThread = task.spawn(auraLoop)
 	end
 
 	function M:Stop()
-		if conn then
-			conn:Disconnect()
-			conn = nil
+		running = false
+		if loopThread then
+			pcall(function() task.cancel(loopThread) end)
+			loopThread = nil
 		end
 	end
 
