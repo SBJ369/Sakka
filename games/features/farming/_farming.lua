@@ -8,7 +8,6 @@ return function(lib, window, Manager, loadModule)
 		end
 	end
 
-	local ORDER_NOTEKA = "Works best with distance of 6 studs"
 	local ORDER_NOTE = "Select in order: first = most important, last = least important"
 
 	local tab = window:CreateTab("Farming")
@@ -17,7 +16,7 @@ return function(lib, window, Manager, loadModule)
 
 	local farmPos = loadModule("features/farming/farming_position.lua")({ state = farmState })
 	local equipItem = loadModule("features/farming/equip_item.lua")({ lib = lib })
-	local killAura = loadModule("features/farming/kill_aura.lua")({ state = farmState })
+	local killAura = loadModule("features/farming/kill_aura.lua")({})
 
 	local equipWeaponDropdown
 	local hotbarSlotDropdown
@@ -38,20 +37,6 @@ return function(lib, window, Manager, loadModule)
 		Callback = function(value)
 			farmState.distance = value
 		end,
-	})
-
-	tab:AddSlider({
- 	   Text = "Kill Aura",
-	   note = ORDER_NOTEKA,
- 	   Min = 0, Max = 200, Default = 0, Suffix = " studs",
- 	   Callback = function(value)
-     	   farmState.killAuraRadius = value
-     	   if value > 0 then
-      	      killAura:Start()
-     	   else
-          	  killAura:Stop()
-    	    end
-  	  end,
 	})
 
 	hotbarSlotDropdown = tab:AddDropdown({
@@ -282,11 +267,11 @@ return function(lib, window, Manager, loadModule)
 
 	--== manager registrations ==-- 
 
-	Manager.Register("kill_aura", {
+	Manager.Register("auto_attack", {
     	onEnable  = function() killAura:Start() end,
     	onDisable = function() killAura:Stop() end,
 	})
-
+	
 	Manager.Register("farming_position", {
 		onEnable  = function() farmPos:Start() end,
 		onDisable = function() farmPos:Stop() end,
@@ -294,7 +279,7 @@ return function(lib, window, Manager, loadModule)
 
 	Manager.Register("auto_farm_bosses", {
 		toggle    = bossToggle,
-		deps      = { "farming_position" },
+		deps      = { "farming_position", "auto_attack" },
 		onEnable  = function() end,
 		onDisable = function() end,
 	})
