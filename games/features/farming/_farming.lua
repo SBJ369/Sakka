@@ -8,6 +8,7 @@ return function(lib, window, Manager, loadModule)
 		end
 	end
 
+	local ORDER_NOTEKA = "Works best with distance of 6 studs"
 	local ORDER_NOTE = "Select in order: first = most important, last = least important"
 
 	local tab = window:CreateTab("Farming")
@@ -41,6 +42,7 @@ return function(lib, window, Manager, loadModule)
 
 	tab:AddSlider({
  	   Text = "Kill Aura",
+	   note = ORDER_NOTEKA
  	   Min = 0, Max = 200, Default = 0, Suffix = " studs",
  	   Callback = function(value)
      	   farmState.killAuraRadius = value
