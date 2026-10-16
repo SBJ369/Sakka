@@ -33,7 +33,7 @@ return function(lib, window, Manager, loadModule)
 	})
 	tab:AddSlider({
 		Text = "Distance",
-		Min = 1, Max = 100, Default = 6, Suffix = " studs",
+		Min = 1, Max = 100, Default = 10, Suffix = " studs",
 		Callback = function(value)
 			farmState.distance = value
 		end,
