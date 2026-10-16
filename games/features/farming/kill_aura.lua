@@ -22,17 +22,17 @@ return function(ctx)
 	local COMBO_COOLDOWN = 1.2 
 
 	local function getRegionFolders()
-		local regions = workspace.Humanoids.Regions
-		local folders = {}
-		for _, region in ipairs(regions:GetChildren()) do
-			local active = region:FindFirstChild("ActiveNpcs")
-			if active then
-				table.insert(folders, active)
-			end
-		end
+	    local regions = workspace.Humanoids.Regions
+	    local folders = {}
+	    for _, region in ipairs(regions:GetChildren()) do
+	        local active = region:FindFirstChild("ActiveNpcs")
+	        if active then
+	            table.insert(folders, active)
+	        end
+ 		end
 		return folders
 	end
-
+	
 	local function getClosestInRange(myHRP, radius)
 		local closest = nil
 		local shortestDist = radius
