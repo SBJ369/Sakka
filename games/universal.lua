@@ -74,6 +74,26 @@ end
 
 local Manager = loadModule("shared/manager.lua")
 
+local _originalUnload = lib.Unload
+lib.Unload = function(self)
+    if Manager and Manager.features then
+        for name, feature in pairs(Manager.features) do
+            if feature.enabled then
+                pcall(function()
+                    if feature.onDisable then feature.onDisable() end
+                    feature.enabled = false
+                end)
+            end
+        end
+    end
+
+    table.clear(moduleCache)
+
+    pcall(function() getgenv().SakkaExecutions = 0 end)
+
+    _originalUnload(self)
+end
+
 --== tabs ==--
 local tabs = {
 	"features/information/_information.lua",
