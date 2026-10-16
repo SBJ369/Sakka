@@ -16,6 +16,7 @@ return function(lib, window, Manager, loadModule)
 
 	local farmPos = loadModule("features/farming/farming_position.lua")({ state = farmState })
 	local equipItem = loadModule("features/farming/equip_item.lua")({ lib = lib })
+	local killAura = loadModule("features/farming/kill_aura.lua")({ state = farmState })
 
 	local equipWeaponDropdown
 	local hotbarSlotDropdown
@@ -39,9 +40,16 @@ return function(lib, window, Manager, loadModule)
 	})
 
 	tab:AddSlider({
-		Text = "Kill Aura",
-		Min = 0, Max = 200, Default = 0, Suffix = " studs",
-		Callback = placeholder("Kill Aura"),
+ 	   Text = "Kill Aura",
+ 	   Min = 0, Max = 200, Default = 0, Suffix = " studs",
+ 	   Callback = function(value)
+     	   farmState.killAuraRadius = value
+     	   if value > 0 then
+      	      killAura:Start()
+     	   else
+          	  killAura:Stop()
+    	    end
+  	  end,
 	})
 
 	hotbarSlotDropdown = tab:AddDropdown({
@@ -271,6 +279,11 @@ return function(lib, window, Manager, loadModule)
 	})
 
 	--== manager registrations ==-- 
+
+	Manager.Register("kill_aura", {
+    	onEnable  = function() killAura:Start() end,
+    	onDisable = function() killAura:Stop() end,
+	})
 
 	Manager.Register("farming_position", {
 		onEnable  = function() farmPos:Start() end,
