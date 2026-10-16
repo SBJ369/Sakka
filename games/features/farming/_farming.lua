@@ -42,7 +42,7 @@ return function(lib, window, Manager, loadModule)
 
 	tab:AddSlider({
  	   Text = "Kill Aura",
-	   note = ORDER_NOTEKA
+	   note = ORDER_NOTEKA,
  	   Min = 0, Max = 200, Default = 0, Suffix = " studs",
  	   Callback = function(value)
      	   farmState.killAuraRadius = value
