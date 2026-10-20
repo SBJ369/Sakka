@@ -46,30 +46,24 @@ return function(lib, window, Manager, loadModule)
 		Callback = function(_) end,
 	})
 
+	equipWeaponDropdown = tab:AddDropdown({
+    	Text = "Equip Weapon",
+    	Options = { "(loading...)" },
+    	Default = "(loading...)",
+    	Callback = function(option)
+        	local slot = hotbarSlotDropdown and hotbarSlotDropdown:Get() or "One"
+	        equipItem:Equip(option, slot)
+    	end,
+	})
+
 	task.spawn(function()
-    	print("spawn fired")
     	task.wait(1)
-    	print("wait done")
-    	print("equipItem type:", type(equipItem))
-    	print("equipWeaponDropdown type:", type(equipWeaponDropdown))
-   		local list = equipItem:GetWeaponList()
-    	print("list size:", #list)
+    	local list = equipItem:GetWeaponList()
     	if #list > 0 then
-        	print("calling Refresh")
         	equipWeaponDropdown:Refresh(list)
         	equipWeaponDropdown:Set(list[1], false)
     	end
 	end)
-
-	equipWeaponDropdown = tab:AddDropdown({
-		Text = "Equip Weapon",
-		Options = { "(loading...)" },
-		Default = "(loading...)",
-		Callback = function(option)
-			local slot = hotbarSlotDropdown and hotbarSlotDropdown:Get() or "One"
-			equipItem:Equip(option, slot)
-		end,
-	})
 	
 	tab:AddMultiDropdown({
 		Title = "Auto Skills",
