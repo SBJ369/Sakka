@@ -1,6 +1,6 @@
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
+local Players           = game:GetService("Players")
+local LocalPlayer       = Players.LocalPlayer
 
 return function(ctx)
 	local lib = ctx.lib
@@ -13,29 +13,6 @@ return function(ctx)
 		:WaitForChild("SignalEvent")
 		:WaitForChild("Event")
 
-	local SLOT_NAMES = { "One", "Two", "Three", "Four", "Five" }
-
-	-- build whitelist from game's own item registry
-	local function buildWhitelist()
-		local whitelist = {}
-		local weaponCategories = { "Katana", "Weapons", "Style" }
-		for _, cat in ipairs(weaponCategories) do
-			local folder = ReplicatedStorage.Items:FindFirstChild(cat)
-			if folder then
-				for _, item in ipairs(folder:GetDescendants()) do
-					whitelist[item.Name] = true
-				end
-			end
-		end
-		-- from Misc, only Clan Skills counts — Crow is not a weapon
-		local misc = ReplicatedStorage.Items:FindFirstChild("Misc")
-		if misc then
-			local clan = misc:FindFirstChild("Clan Skills")
-			if clan then whitelist["Clan Skills"] = true end
-		end
-		return whitelist
-	end
-
 	local function getInventoryFolder()
 		return ReplicatedStorage
 			:WaitForChild("Player_Service")
@@ -47,60 +24,81 @@ return function(ctx)
 			:WaitForChild("Inventory")
 	end
 
-	-- returns ordered list: Simple Combat always first, then inventory weapons in order
-	local function getWeaponList()
-		local list = { "Simple Combat" }
-		local whitelist = buildWhitelist()
+
+	local function buildWeaponList()
+		local list = {}
+
 		local ok, inv = pcall(getInventoryFolder)
-		if ok and inv then
-			for _, child in ipairs(inv:GetChildren()) do
-				if whitelist[child.Name] then
-					table.insert(list, child.Name)
-				end
+		if not ok or not inv then
+			return { { name = "Simple Combat", index = 1 } }
+		end
+
+		for _, child in ipairs(inv:GetChildren()) do
+			local indexValue = child:FindFirstChildOfClass("Id")
+			if indexValue then
+				local displayName = (child.Name == "Combat") and "Simple Combat" or child.Name
+				table.insert(list, { name = displayName, index = indexValue.Value })
 			end
 		end
+
 		return list
 	end
+	
+	-- Returns just the names for the dropdown
+	function M:GetWeaponList()
+		local list = buildWeaponList()
+		local names = {}
+		for _, entry in ipairs(list) do
+			table.insert(names, entry.name)
+		end
+		return names
+	end
 
-	-- index in the combined list = what the server expects as 3rd arg
-	local function getWeaponIndex(name, list)
-		for i, n in ipairs(list) do
-			if n == name then return i end
+	-- Returns the inventory index for a given display name
+	local function getIndex(name)
+		local list = buildWeaponList()
+		for _, entry in ipairs(list) do
+			if entry.name == name then return entry.index end
 		end
 		return nil
 	end
 
-	function M:GetWeaponList()
-		return getWeaponList()
+	-- Returns the currently active hotbar slot number (1-5) based on Items_ConfigServer
+	-- Equipped.Value holds the slot number that is pulled out, 0 = nothing pulled out
+	local function getPulledOutSlot()
+		local config = LocalPlayer:FindFirstChild("Items_ConfigServer")
+		if not config then return 0 end
+		local eq = config:FindFirstChild("Equipped")
+		return eq and eq.Value or 0
 	end
 
+	local SLOT_TO_NUMBER = { One = 1, Two = 2, Three = 3, Four = 4, Five = 5 }
+
 	function M:Equip(name, slotName)
-		local list = getWeaponList()
-		local idx = getWeaponIndex(name, list)
+		local idx = getIndex(name)
 		if not idx then
-			lib:Notify({ Title = "Equip Weapon", Content = "Not found: " .. name, Duration = 3 })
+			lib:Notify({ Title = "Equip Weapon", Content = "Not found in inventory: " .. tostring(name), Duration = 3 })
 			return
 		end
 
 		slotName = slotName or "One"
+		local slotNumber = SLOT_TO_NUMBER[slotName] or 1
 
-		-- put back if something is currently pulled out
-		local ok, equippedConfig = pcall(function()
-			return LocalPlayer
-				:WaitForChild("Items_ConfigServer")
-				:WaitForChild("Equipped")
-		end)
-		if ok and equippedConfig and equippedConfig.Value == 1 then
+		-- If something is currently pulled out, put it away first
+		local pulledSlot = getPulledOutSlot()
+		if pulledSlot ~= 0 then
 			pcall(function() SignalEvent:FireServer("Item_Equip", 0) end)
-			task.wait(0.1)
+			task.wait(0.15)
 		end
 
-		-- slot into selected hotbar slot
-		pcall(function() SignalEvent:FireServer("Toolbar_Equip", slotName, idx) end)
+		-- Slot the item into the hotbar slot (0 first to clear, then the real index)
+		pcall(function() SignalEvent:FireServer("Toolbar_Equip", slotName, 0) end)
 		task.wait(0.1)
+		pcall(function() SignalEvent:FireServer("Toolbar_Equip", slotName, idx) end)
+		task.wait(0.15)
 
-		-- pull it out
-		pcall(function() SignalEvent:FireServer("Item_Equip", 1) end)
+		-- Pull it out from the correct slot number
+		pcall(function() SignalEvent:FireServer("Item_Equip", slotNumber) end)
 	end
 
 	return M
