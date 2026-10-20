@@ -47,12 +47,14 @@ return function(lib, window, Manager, loadModule)
 	})
 
 	task.spawn(function()
-		task.wait(1)
-		local list = equipItem:GetWeaponList()
-		if #list > 0 then
-			equipWeaponDropdown:Refresh(list)
-			equipWeaponDropdown:Set(list[1], false)
-		end
+    	task.wait(1)
+    	local list = equipItem:GetWeaponList()
+    	print("GetWeaponList returned:", #list, "items")
+    	if #list > 0 then
+        	print("calling Refresh")
+        	equipWeaponDropdown:Refresh(list)
+        	equipWeaponDropdown:Set(list[1], false)
+    	end
 	end)
 
 	equipWeaponDropdown = tab:AddDropdown({
