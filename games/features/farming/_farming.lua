@@ -57,11 +57,23 @@ return function(lib, window, Manager, loadModule)
 	})
 
 	task.spawn(function()
-    	task.wait(1)
-    	local list = equipItem:GetWeaponList()
+    	local list = {}
+    	local attempts = 0
+    	repeat
+        	task.wait(1)
+        	attempts += 1
+        	list = equipItem:GetWeaponList()
+    	until #list > 0 or attempts >= 15
+
     	if #list > 0 then
         	equipWeaponDropdown:Refresh(list)
         	equipWeaponDropdown:Set(list[1], false)
+    	else
+        	lib:Notify({
+            	Title = "Equip Weapon",
+            	Content = "Inventory did not populate after 15s.",
+	            Duration = 5,
+        	})
     	end
 	end)
 	
