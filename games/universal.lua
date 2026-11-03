@@ -1,13 +1,11 @@
 local SakkaUI = loadstring(game:HttpGet("https://raw.githubusercontent.com/SBJ369/SakkaUI-library/refs/heads/main/SakkaUI.lua"))()
 
---== services ==--
 local Players          = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer      = Players.LocalPlayer
 
 local lib = SakkaUI.new()
 
---== helpers ==--
 local function executorName()
 	local ok, name = pcall(function()
 		if identifyexecutor then return identifyexecutor() end
@@ -31,12 +29,10 @@ pcall(function()
 	execCount = getgenv().SakkaExecutions
 end)
 
---== window ==--
 local window = lib:CreateWindow({
 	Title = "Sakka",
 	Font = Enum.Font.PermanentMarker,
 	TextSize = 24,
-	-- KeySystem = true, Key = "SAKKA-2026", KeyLink = "https://...",
 })
 
 window:LoadLocalAvatar()
@@ -47,7 +43,6 @@ window:SetCharacterInfo({
 	Executions = execCount,
 })
 
---== module loader ==--
 local BASE = "https://raw.githubusercontent.com/SBJ369/Sakka/refs/heads/main/games/"
 local moduleCache = {}
 
@@ -76,31 +71,24 @@ local Manager = loadModule("shared/manager.lua")
 
 local _originalUnload = lib.Unload
 lib.Unload = function(self)
-    if Manager and Manager.features then
-        for name, feature in pairs(Manager.features) do
-            if feature.enabled then
-                pcall(function()
-                    if feature.onDisable then feature.onDisable() end
-                    feature.enabled = false
-                end)
-            end
-        end
-    end
-
-    table.clear(moduleCache)
-
-    pcall(function() getgenv().SakkaExecutions = 0 end)
-
-    _originalUnload(self)
+	if Manager and Manager.features then
+		for name, feature in pairs(Manager.features) do
+			if feature.enabled then
+				pcall(function()
+					if feature.onDisable then feature.onDisable() end
+					feature.enabled = false
+				end)
+			end
+		end
+	end
+	table.clear(moduleCache)
+	pcall(function() getgenv().SakkaExecutions = 0 end)
+	_originalUnload(self)
 end
 
---== tabs ==--
+-- add tab paths here, dependency order matters (top loads first)
 local tabs = {
-	"features/information/_information.lua",
-	"features/farming/_farming.lua",
-	"features/dungeon/_dungeon.lua",
-	"features/player/_player.lua",
-	"features/training/_training.lua",
+	-- "features/example/_example.lua",
 }
 for _, path in ipairs(tabs) do
 	local mod = loadModule(path)
