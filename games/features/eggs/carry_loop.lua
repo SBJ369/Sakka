@@ -1,6 +1,9 @@
 -- games/features/eggs/carry_loop.lua
--- Full auto-carry cycle. Uses RunService.RenderStepped to assert Humanoid:Move
--- after the game's own movement controller has run each frame.
+-- Full auto-carry cycle. Uses RunService.RenderStepped to assert Humanoid:Move.
+-- Walk-home target is the plot respawn CFrame (inside pen area), matching the
+-- game's own PlotState.ContainsLocalPoint carry-end trigger.
+-- Uses raw FieldEggCarry event as authoritative carry-end signal, with a
+-- 0.5s pickup-time filter to reject stale events from previous cycles.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -13,7 +16,7 @@ return function(ctx)
 
     local M = {}
     local LocalPlayer = Players.LocalPlayer
-    local Remotes, EggState, AreaEggSlotIdentity
+    local Remotes, EggState, AreaEggSlotIdentity, PlotState
 
     local function log(msg)
         if lib and lib.Notify then
@@ -28,6 +31,7 @@ return function(ctx)
             Remotes = require(ReplicatedStorage.Shared.Remotes)
             EggState = require(ReplicatedStorage.Client.EggState)
             AreaEggSlotIdentity = require(ReplicatedStorage.Shared.Util.AreaEggSlotIdentity)
+            PlotState = require(ReplicatedStorage.Client.PlotState)
         end)
         if not ok then log("loadDeps: " .. tostring(err)) end
         return ok
@@ -36,9 +40,10 @@ return function(ctx)
     M.CARRY_RANGE        = 10
     M.WALK_TIMEOUT       = 30
     M.CARRY_FIRE_TIMEOUT = 5
-    M.RETURN_TIMEOUT     = 30
+    M.RETURN_TIMEOUT     = 45
     M.DROP_TIMEOUT       = 8
     M.MAX_FAILS          = 3
+    M.STALE_EVENT_WINDOW = 0.5   -- ignore drop events within 0.5s of pickup
 
     local running = false
     local thread
@@ -81,11 +86,18 @@ return function(ctx)
         return z ~= nil and z >= 0
     end
 
+    -- Walk home target: plot respawn CFrame. This is the center of the pen
+    -- area, well within PlotState.ContainsLocalPoint's positive region.
     local function safeZoneTarget()
         local p = pos()
+        if not p then return nil end
+        local ok, plot = pcall(function() return PlotState.ResolvePlot() end)
+        if ok and plot and plot.RespawnPointCFrame then
+            return plot.RespawnPointCFrame.Position
+        end
         local line = separationLine()
-        if not p or not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z + 10)
+        if not line then return nil end
+        return Vector3.new(p.X, p.Y, line.Position.Z + 8)
     end
 
     local function fieldTarget()
@@ -95,8 +107,8 @@ return function(ctx)
         return Vector3.new(p.X, p.Y, line.Position.Z - 10)
     end
 
-    -- Assert Humanoid:Move from RenderStepped so the game's own
-    -- movement controller doesn't override us before physics runs.
+    -- Assert Humanoid:Move from RenderStepped so the game's own movement
+    -- controller doesn't override us before physics runs.
     local function walkTo(target, stopDist, timeout)
         stopDist = stopDist or 4
         timeout = timeout or M.WALK_TIMEOUT
@@ -157,6 +169,7 @@ return function(ctx)
     end
 
     local function carryOnce()
+        -- 1. ensure we're on field side
         if not isFieldSide() then
             local ft = fieldTarget()
             if not ft then return false, "no field target" end
@@ -167,9 +180,11 @@ return function(ctx)
             end
         end
 
+        -- 2. find nearest egg
         local egg = Finder:Nearest({ maxDist = 600 })
         if not egg then return false, "no egg" end
 
+        -- 3. walk to egg
         if not walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT) then
             return false, "walk to egg timed out"
         end
@@ -179,6 +194,7 @@ return function(ctx)
             return false, "lost range to egg"
         end
 
+        -- 4. fire carry
         local slotKey
         if AreaEggSlotIdentity.LooksLikeFirstAreaUid(egg.uid) then
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
@@ -190,22 +206,38 @@ return function(ctx)
         })
         if not fired then return false, "carry rejected: " .. tostring(err) end
 
-        local started = waitFor(function()
-            local cs = EggState.ReadCarryState()
-            return cs and cs.IsCarrying == true
-        end, M.CARRY_FIRE_TIMEOUT)
-        if not started then return false, "carry never started" end
+        -- 5. wait for carry start (raw event)
+        local carryStarted = false
+        local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
+            if state and state.IsCarrying == true then
+                carryStarted = true
+            end
+        end)
+        if not waitFor(function() return carryStarted end, M.CARRY_FIRE_TIMEOUT) then
+            if connStart then pcall(function() connStart:Disconnect() end) end
+            return false, "carry never started"
+        end
+        if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- return walk: per-frame Move from RenderStepped, re-evaluate target each frame
+        -- 6. walk home — with stale-event filter on carry-end listener
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return" end
+
+        local pickupTime = os.clock()
+        local carryEnded = false
+        local connEvent = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
+            -- reject drop events within STALE_EVENT_WINDOW of pickup
+            if state and state.IsCarrying == false
+               and (os.clock() - pickupTime) > M.STALE_EVENT_WINDOW then
+                carryEnded = true
+            end
+        end)
+
         local reachedSafe = false
         local connReturn
         connReturn = RunService.RenderStepped:Connect(function()
-            local cs = EggState.ReadCarryState()
-            if not cs or not cs.IsCarrying then
+            if carryEnded then
                 pcall(function() humReturn:Move(Vector3.zero) end)
-                reachedSafe = isSafeSide()
                 if connReturn then pcall(function() connReturn:Disconnect() end) end
                 connReturn = nil
                 return
@@ -226,15 +258,39 @@ return function(ctx)
         end)
 
         local tStartReturn = os.clock()
-        while not reachedSafe and (os.clock() - tStartReturn) < M.RETURN_TIMEOUT do
+        while not carryEnded and not reachedSafe and (os.clock() - tStartReturn) < M.RETURN_TIMEOUT do
             if not running then break end
             task.wait(0.1)
         end
         if connReturn then pcall(function() connReturn:Disconnect() end) end
         if humReturn then pcall(function() humReturn:Move(Vector3.zero) end) end
 
-        if not reachedSafe then return false, "return walk timed out" end
-        if not isSafeSide() then return false, "dropped on field (caught)" end
+        -- if we reached safe target but server hasn't confirmed carry-end, wait a bit more
+        if reachedSafe and not carryEnded then
+            local tWait = os.clock()
+            while not carryEnded and (os.clock() - tWait) < M.DROP_TIMEOUT do
+                if not running then break end
+                task.wait(0.1)
+            end
+        end
+
+        if connEvent then pcall(function() connEvent:Disconnect() end) end
+
+        -- debug
+        local csNow = EggState.ReadCarryState()
+        log(("return: reachedSafe=%s carryEnded=%s isSafe=%s cs=%s"):format(
+            tostring(reachedSafe), tostring(carryEnded), tostring(isSafeSide()),
+            tostring(csNow and csNow.IsCarrying)))
+
+        if not carryEnded then
+            return false, ("server never confirmed carry-end (reachedSafe=%s)"):format(tostring(reachedSafe))
+        end
+        if not isSafeSide() then
+            return false, "carry ended but we're still on field side"
+        end
+        if csNow and csNow.IsCarrying then
+            return false, "server ended carry but client shows carrying"
+        end
 
         return true, nil
     end
