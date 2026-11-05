@@ -78,21 +78,7 @@ return function(ctx)
         local p = pos()
         local line = separationLine()
         if not p or not line then return nil end
-        -- transform world point into the line's local space
-        local localPos = line.CFrame:PointToObjectSpace(p)
-        -- localPos.X == 0 on the line plane.
-        -- The lookVector is (1, 0, -0) per your test, meaning the line's
-        -- "forward" direction is +X. The line is 393 studs LONG along X,
-        -- so X is not what distinguishes sides.
-        -- The line is 0.5 studs THICK along Z. So localPos.Z distinguishes sides.
-        -- Positive localPos.Z = one side, negative = other side.
-        -- From your test: at Z=-362.62 (world), IsPastLine=false (safe);
-        --                 at Z=-362.55 (world), IsPastLine=true  (field).
-        -- Line world Z = -364.52.
-        -- So: world Z > line Z  => safe zone
-        --     world Z < line Z  => field
-        -- localPos.Z = world Z - line Z  (since line has identity orientation in Z here)
-        return localPos.Z  -- positive = safe, negative = field
+        return p.Z - line.Position.Z
     end
 
     local function isFieldSide()
@@ -109,15 +95,14 @@ return function(ctx)
         local p = pos()
         local line = separationLine()
         if not p or not line then return nil end
-        -- safe side is world Z > line Z; push 15 studs in
-        return Vector3.new(p.X, p.Y, line.Position.Z + 15)
+        return Vector3.new(p.X, p.Y, line.Position.Z + 5)
     end
 
     local function fieldTarget()
         local p = pos()
         local line = separationLine()
         if not p or not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z - 20)
+        return Vector3.new(p.X, p.Y, line.Position.Z - 5)
     end
 
     local function waitFor(pred, timeout)
@@ -162,12 +147,15 @@ return function(ctx)
 
     local function carryOnce()
         -- 1. ensure we're in field
+    if not isFieldSide() then
+        local ft = fieldTarget()
+        if not ft then return false, "cannot compute field target" end
+        if not walkTo(ft, 5, 25) then return false, "failed to walk into field" end
         if not isFieldSide() then
-            local ft = fieldTarget()
-            if not ft then return false, "cannot compute field target" end
-            if not walkTo(ft, 5, 25) then return false, "failed to walk into field" end
-            if not isFieldSide() then return false, "not in field after walking" end
+            local p, l = pos(), separationLine()
+            return false, ("not in field after walking (myZ=%.1f lineZ=%.1f)"):format(p.Z, l.Position.Z)
         end
+    end
 
         -- 2. find nearest egg
         local egg = Finder:Nearest({ maxDist = 600 })
@@ -217,7 +205,7 @@ return function(ctx)
             return cs and cs.IsCarrying == false
         end, M.DROP_TIMEOUT)
         if not dropped then return false, "carry never ended" end
-
+        if not isSafeSide() then return false, "dropped on field side (likely caught)" end
         return true, nil
     end
 
