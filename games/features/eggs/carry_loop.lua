@@ -1,9 +1,9 @@
 -- games/features/eggs/carry_loop.lua
 -- Full auto-carry cycle. Uses RunService.RenderStepped to assert Humanoid:Move.
--- Walk-home target is the plot respawn CFrame (inside pen area), matching the
--- game's own PlotState.ContainsLocalPoint carry-end trigger.
--- Uses raw FieldEggCarry event as authoritative carry-end signal, with a
--- 0.5s pickup-time filter to reject stale events from previous cycles.
+-- Walk-home target is the plot respawn CFrame (inside pen area).
+-- Uses raw FieldEggCarry event as authoritative carry start/end signal.
+-- Listener is connected BEFORE firing AskFieldEggCarry to avoid missing
+-- the event during the InvokeServer yield.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -43,7 +43,7 @@ return function(ctx)
     M.RETURN_TIMEOUT     = 45
     M.DROP_TIMEOUT       = 8
     M.MAX_FAILS          = 3
-    M.STALE_EVENT_WINDOW = 0.5   -- ignore drop events within 0.5s of pickup
+    M.STALE_EVENT_WINDOW = 0.5
 
     local running = false
     local thread
@@ -86,8 +86,14 @@ return function(ctx)
         return z ~= nil and z >= 0
     end
 
-    -- Walk home target: plot respawn CFrame. This is the center of the pen
-    -- area, well within PlotState.ContainsLocalPoint's positive region.
+    -- "inside pen" means PlotState.ContainsLocalPoint is true
+    local function isInsidePen()
+        local p = pos()
+        if not p then return false end
+        local ok, inside = pcall(function() return PlotState.ContainsLocalPoint(p) end)
+        return ok and inside == true
+    end
+
     local function safeZoneTarget()
         local p = pos()
         if not p then return nil end
@@ -107,8 +113,6 @@ return function(ctx)
         return Vector3.new(p.X, p.Y, line.Position.Z - 10)
     end
 
-    -- Assert Humanoid:Move from RenderStepped so the game's own movement
-    -- controller doesn't override us before physics runs.
     local function walkTo(target, stopDist, timeout)
         stopDist = stopDist or 4
         timeout = timeout or M.WALK_TIMEOUT
@@ -169,7 +173,7 @@ return function(ctx)
     end
 
     local function carryOnce()
-        -- 1. ensure we're on field side
+        -- 1. ensure we're on field side (past separation line)
         if not isFieldSide() then
             local ft = fieldTarget()
             if not ft then return false, "no field target" end
@@ -194,25 +198,30 @@ return function(ctx)
             return false, "lost range to egg"
         end
 
-        -- 4. fire carry
+        -- 4. compute slot key
         local slotKey
         if AreaEggSlotIdentity.LooksLikeFirstAreaUid(egg.uid) then
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        local fired, err = Remotes.EggWorld.AskFieldEggCarry:InvokeServer({
-            Uid = egg.uid,
-            FirstAreaSlotKey = slotKey,
-        })
-        if not fired then return false, "carry rejected: " .. tostring(err) end
-
-        -- 5. wait for carry start (raw event)
+        -- 5. CONNECT LISTENER FIRST, then fire (avoids race where event
+        --    fires during InvokeServer's yield before we attached)
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
                 carryStarted = true
             end
         end)
+
+        local fired, err = Remotes.EggWorld.AskFieldEggCarry:InvokeServer({
+            Uid = egg.uid,
+            FirstAreaSlotKey = slotKey,
+        })
+        if not fired then
+            if connStart then pcall(function() connStart:Disconnect() end) end
+            return false, "carry rejected: " .. tostring(err)
+        end
+
         if not waitFor(function() return carryStarted end, M.CARRY_FIRE_TIMEOUT) then
             if connStart then pcall(function() connStart:Disconnect() end) end
             return false, "carry never started"
@@ -226,7 +235,6 @@ return function(ctx)
         local pickupTime = os.clock()
         local carryEnded = false
         local connEvent = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
-            -- reject drop events within STALE_EVENT_WINDOW of pickup
             if state and state.IsCarrying == false
                and (os.clock() - pickupTime) > M.STALE_EVENT_WINDOW then
                 carryEnded = true
@@ -265,7 +273,6 @@ return function(ctx)
         if connReturn then pcall(function() connReturn:Disconnect() end) end
         if humReturn then pcall(function() humReturn:Move(Vector3.zero) end) end
 
-        -- if we reached safe target but server hasn't confirmed carry-end, wait a bit more
         if reachedSafe and not carryEnded then
             local tWait = os.clock()
             while not carryEnded and (os.clock() - tWait) < M.DROP_TIMEOUT do
@@ -276,17 +283,15 @@ return function(ctx)
 
         if connEvent then pcall(function() connEvent:Disconnect() end) end
 
-        -- debug
         local csNow = EggState.ReadCarryState()
-        log(("return: reachedSafe=%s carryEnded=%s isSafe=%s cs=%s"):format(
-            tostring(reachedSafe), tostring(carryEnded), tostring(isSafeSide()),
+        local insidePen = isInsidePen()
+        log(("return: reachedSafe=%s carryEnded=%s insidePen=%s cs=%s"):format(
+            tostring(reachedSafe), tostring(carryEnded), tostring(insidePen),
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            return false, ("server never confirmed carry-end (reachedSafe=%s)"):format(tostring(reachedSafe))
-        end
-        if not isSafeSide() then
-            return false, "carry ended but we're still on field side"
+            return false, ("server never confirmed carry-end (reachedSafe=%s insidePen=%s)"):format(
+                tostring(reachedSafe), tostring(insidePen))
         end
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying"
