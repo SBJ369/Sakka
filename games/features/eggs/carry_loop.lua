@@ -4,6 +4,8 @@
 -- Uses raw FieldEggCarry event as authoritative carry start/end signal.
 -- Listener is connected BEFORE firing AskFieldEggCarry to avoid missing
 -- the event during the InvokeServer yield.
+-- Stale-event filter is 0.2s (was 0.5s) and falls back to client-state
+-- verification when reachedSafe + insidePen + cs=false align.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -43,7 +45,7 @@ return function(ctx)
     M.RETURN_TIMEOUT     = 45
     M.DROP_TIMEOUT       = 8
     M.MAX_FAILS          = 3
-    M.STALE_EVENT_WINDOW = 0.5
+    M.STALE_EVENT_WINDOW = 0.2
 
     local running = false
     local thread
@@ -81,12 +83,6 @@ return function(ctx)
         return z ~= nil and z < 0
     end
 
-    local function isSafeSide()
-        local z = sideOfLine()
-        return z ~= nil and z >= 0
-    end
-
-    -- "inside pen" means PlotState.ContainsLocalPoint is true
     local function isInsidePen()
         local p = pos()
         if not p then return false end
@@ -173,7 +169,7 @@ return function(ctx)
     end
 
     local function carryOnce()
-        -- 1. ensure we're on field side (past separation line)
+        -- 1. ensure we're on field side
         if not isFieldSide() then
             local ft = fieldTarget()
             if not ft then return false, "no field target" end
@@ -204,8 +200,7 @@ return function(ctx)
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        -- 5. CONNECT LISTENER FIRST, then fire (avoids race where event
-        --    fires during InvokeServer's yield before we attached)
+        -- 5. CONNECT LISTENER FIRST, then fire
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -290,8 +285,13 @@ return function(ctx)
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            return false, ("server never confirmed carry-end (reachedSafe=%s insidePen=%s)"):format(
-                tostring(reachedSafe), tostring(insidePen))
+            -- fallback: reached safe target, inside pen, client shows not carrying
+            if reachedSafe and insidePen and csNow and not csNow.IsCarrying then
+                log("delivered (fallback: reachedSafe + insidePen + cs=false)")
+                return true, nil
+            end
+            return false, ("server never confirmed carry-end (reachedSafe=%s insidePen=%s cs=%s)"):format(
+                tostring(reachedSafe), tostring(insidePen), tostring(csNow and csNow.IsCarrying))
         end
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying"
