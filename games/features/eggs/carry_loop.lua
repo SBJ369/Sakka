@@ -4,8 +4,6 @@
 -- Uses raw FieldEggCarry event as authoritative carry start/end signal.
 -- Listener is connected BEFORE firing AskFieldEggCarry to avoid missing
 -- the event during the InvokeServer yield.
--- Stale-event filter is 0.2s (was 0.5s) and falls back to client-state
--- verification when reachedSafe + insidePen + cs=false align.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -15,6 +13,7 @@ local RunService = game:GetService("RunService")
 return function(ctx)
     local lib = ctx and ctx.lib
     local Finder = ctx and ctx.Finder
+    local options = ctx and ctx.options or {}
 
     local M = {}
     local LocalPlayer = Players.LocalPlayer
@@ -168,6 +167,21 @@ return function(ctx)
         return false
     end
 
+    -- build Finder:Nearest options from current user settings
+    local function buildFinderOpts()
+        local opts = { maxDist = 600 }
+        if options.fieldFilter and options.fieldFilter ~= "Any" then
+            opts.areaId = options.fieldFilter
+        end
+        if options.skipParasite then
+            opts.noParasite = true
+        end
+        if options.allowedMutations and #options.allowedMutations > 0 then
+            opts.mutations = options.allowedMutations
+        end
+        return opts
+    end
+
     local function carryOnce()
         -- 1. ensure we're on field side
         if not isFieldSide() then
@@ -180,9 +194,9 @@ return function(ctx)
             end
         end
 
-        -- 2. find nearest egg
-        local egg = Finder:Nearest({ maxDist = 600 })
-        if not egg then return false, "no egg" end
+        -- 2. find nearest egg (respecting user filters)
+        local egg = Finder:Nearest(buildFinderOpts())
+        if not egg then return false, "no egg matching filters" end
 
         -- 3. walk to egg
         if not walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT) then
@@ -223,7 +237,7 @@ return function(ctx)
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- 6. walk home — with stale-event filter on carry-end listener
+        -- 6. walk home
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return" end
 
@@ -285,7 +299,6 @@ return function(ctx)
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            -- fallback: reached safe target, inside pen, client shows not carrying
             if reachedSafe and insidePen and csNow and not csNow.IsCarrying then
                 log("delivered (fallback: reachedSafe + insidePen + cs=false)")
                 return true, nil
