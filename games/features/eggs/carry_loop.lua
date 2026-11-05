@@ -1,45 +1,51 @@
 -- games/features/eggs/carry_loop.lua
--- Full auto-carry cycle. Safe: only fires AskFieldEggCarry when within
--- the server's own reach threshold (~12 studs) and only while past the
--- SeparationLine. Never modifies WalkSpeed or rig cframes.
+-- Full auto-carry cycle. Safe: only fires AskFieldEggCarry within the
+-- server's own reach threshold and only while past the SeparationLine.
+-- Never modifies WalkSpeed or rig cframes.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 return function(ctx)
-    local lib = ctx.lib
-    local Finder = ctx.Finder  -- injected from _eggs.lua
+    local lib = ctx and ctx.lib
+    local Finder = ctx and ctx.Finder
 
     local M = {}
 
     local LocalPlayer = Players.LocalPlayer
-    local Remotes, EggState, AreaEggSlotIdentity, GuardAreaGeometry, PlotState
+    local Remotes, EggState, AreaEggSlotIdentity
+
+    local function log(msg)
+        if lib and lib.Notify then
+            pcall(function()
+                lib:Notify({ Title = "Auto Egg", Content = tostring(msg), Duration = 3 })
+            end)
+        end
+        warn("[autoegg] " .. tostring(msg))
+    end
 
     local function loadDeps()
         if Remotes then return true end
-        local ok = pcall(function()
+        local ok, err = pcall(function()
             Remotes = require(ReplicatedStorage.Shared.Remotes)
             EggState = require(ReplicatedStorage.Client.EggState)
             AreaEggSlotIdentity = require(ReplicatedStorage.Shared.Util.AreaEggSlotIdentity)
-            GuardAreaGeometry = require(ReplicatedStorage.Shared.Util.GuardAreaGeometry)
-            PlotState = require(ReplicatedStorage.Client.PlotState)
         end)
+        if not ok then log("loadDeps failed: " .. tostring(err)) end
         return ok
     end
 
     -- tuning
-    M.CARRY_RANGE      = 10     -- walk this close before firing AskFieldEggCarry
-    M.WALK_TIMEOUT     = 30     -- seconds to reach an egg before giving up that attempt
-    M.CARRY_FIRE_TIMEOUT = 5    -- seconds for IsCarrying to flip true
-    M.RETURN_TIMEOUT   = 60     -- seconds to walk home
-    M.DROP_TIMEOUT     = 10     -- seconds for IsCarrying to flip false
-    M.MAX_FAILS        = 3      -- consecutive failures before abort
+    M.CARRY_RANGE        = 10
+    M.WALK_TIMEOUT       = 30
+    M.CARRY_FIRE_TIMEOUT = 5
+    M.RETURN_TIMEOUT     = 60
+    M.DROP_TIMEOUT       = 10
+    M.MAX_FAILS          = 3
 
     local running = false
     local thread
-
-    --== helpers ==--
 
     local function hrp()
         local char = LocalPlayer.Character
@@ -56,34 +62,64 @@ return function(ctx)
         return p and p.Position
     end
 
-    local function isPastLine()
-        local p = pos()
-        if not p then return false end
-        local ok, sep = pcall(function()
-            return Workspace.World.Areas.SeparationLine
-        end)
-        if not ok or not sep then return false end
-        return GuardAreaGeometry.IsPastLine(sep, p)
+    -- replicate IsPastLine using the separation line's own CFrame.
+    -- Line is thin along its lookVector axis. The line's CFrame defines
+    -- a plane; a point is "past" it based on the sign of the local X
+    -- (or Z, whichever the lookVector says is "forward").
+    local function separationLine()
+        local world = Workspace:FindFirstChild("World")
+        if not world then return nil end
+        local areas = world:FindFirstChild("Areas")
+        if not areas then return nil end
+        return areas:FindFirstChild("SeparationLine")
     end
 
-    -- returns a world position on the safe-zone side of the line, near current X
+    local function sideOfLine()
+        local p = pos()
+        local line = separationLine()
+        if not p or not line then return nil end
+        -- transform world point into the line's local space
+        local localPos = line.CFrame:PointToObjectSpace(p)
+        -- localPos.X == 0 on the line plane.
+        -- The lookVector is (1, 0, -0) per your test, meaning the line's
+        -- "forward" direction is +X. The line is 393 studs LONG along X,
+        -- so X is not what distinguishes sides.
+        -- The line is 0.5 studs THICK along Z. So localPos.Z distinguishes sides.
+        -- Positive localPos.Z = one side, negative = other side.
+        -- From your test: at Z=-362.62 (world), IsPastLine=false (safe);
+        --                 at Z=-362.55 (world), IsPastLine=true  (field).
+        -- Line world Z = -364.52.
+        -- So: world Z > line Z  => safe zone
+        --     world Z < line Z  => field
+        -- localPos.Z = world Z - line Z  (since line has identity orientation in Z here)
+        return localPos.Z  -- positive = safe, negative = field
+    end
+
+    local function isFieldSide()
+        local z = sideOfLine()
+        return z ~= nil and z < 0
+    end
+
+    local function isSafeSide()
+        local z = sideOfLine()
+        return z ~= nil and z >= 0
+    end
+
     local function safeZoneTarget()
         local p = pos()
-        if not p then return nil end
-        local sep = Workspace.World.Areas.SeparationLine
-        local zLine = sep.Position.Z
-        -- try both candidate sides; whichever IsPastLine says is false is the safe side
-        local testA = Vector3.new(p.X, p.Y, zLine + 15)
-        local testB = Vector3.new(p.X, p.Y, zLine - 15)
-        if not GuardAreaGeometry.IsPastLine(sep, testA) then
-            return testA
-        elseif not GuardAreaGeometry.IsPastLine(sep, testB) then
-            return testB
-        end
-        return nil
+        local line = separationLine()
+        if not p or not line then return nil end
+        -- safe side is world Z > line Z; push 15 studs in
+        return Vector3.new(p.X, p.Y, line.Position.Z + 15)
     end
 
-    -- fire-and-poll: wait until predicate returns truthy or timeout
+    local function fieldTarget()
+        local p = pos()
+        local line = separationLine()
+        if not p or not line then return nil end
+        return Vector3.new(p.X, p.Y, line.Position.Z - 20)
+    end
+
     local function waitFor(pred, timeout)
         local t0 = os.clock()
         while os.clock() - t0 < timeout do
@@ -93,98 +129,89 @@ return function(ctx)
         return false
     end
 
-    -- walk toward target with Humanoid:MoveTo, poll distance
-    -- returns true if within stopDist, false on timeout or missing humanoid
     local function walkTo(target, stopDist, timeout)
         stopDist = stopDist or 4
         timeout = timeout or M.WALK_TIMEOUT
         local hum = humanoid()
-        local p = pos()
-        if not hum or not p then return false end
-
+        if not hum then return false end
         local t0 = os.clock()
         while os.clock() - t0 < timeout do
-            if not running then return false end
-            local pp = pos()
-            if not pp then return false end
-            local d = (pp - target).Magnitude
+            if not running then
+                local p = pos()
+                if p and hum then hum:MoveTo(p) end
+                return false
+            end
+            local p = pos()
+            if not p then return false end
+            local d = (p - target).Magnitude
             if d <= stopDist then
-                hum:MoveTo(pp)  -- stop
+                hum:MoveTo(p)
                 return true
             end
             hum:MoveTo(target)
             task.wait(0.15)
         end
-        hum:MoveTo(pos() or target)  -- stop
+        local p = pos()
+        if p and hum then hum:MoveTo(p) end
         return false
     end
 
-    -- poll distance to a specific uid (via Finder)
     local function distanceToUid(uid)
         return Finder:DistanceTo(uid)
     end
 
-    --== the loop body ==--
-
     local function carryOnce()
-        if not isPastLine() then
-            -- not in the field yet — walk past the line first
-            local p = pos()
-            if not p then return false, "no character" end
-            local sep = Workspace.World.Areas.SeparationLine
-            -- need a point on the FIELD side: the one that returns true
-            local fieldPoint
-            local zLine = sep.Position.Z
-            local a = Vector3.new(p.X, p.Y, zLine + 20)
-            local b = Vector3.new(p.X, p.Y, zLine - 20)
-            if GuardAreaGeometry.IsPastLine(sep, a) then fieldPoint = a
-            elseif GuardAreaGeometry.IsPastLine(sep, b) then fieldPoint = b
-            else return false, "cannot find field side" end
-            walkTo(fieldPoint, 5, 20)
-            if not isPastLine() then return false, "failed to enter gameplay area" end
+        -- 1. ensure we're in field
+        if not isFieldSide() then
+            local ft = fieldTarget()
+            if not ft then return false, "cannot compute field target" end
+            if not walkTo(ft, 5, 25) then return false, "failed to walk into field" end
+            if not isFieldSide() then return false, "not in field after walking" end
         end
 
+        -- 2. find nearest egg
         local egg = Finder:Nearest({ maxDist = 600 })
-        if not egg then return false, "no egg" end
+        if not egg then return false, "no egg found" end
 
-        -- walk to within CARRY_RANGE of the egg
-        local ok = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT)
-        if not ok then return false, "walk to egg timed out" end
+        -- 3. walk to within CARRY_RANGE
+        if not walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT) then
+            return false, "walk to egg timed out"
+        end
 
-        -- verify still in range
+        -- 4. verify still in range
         local dist = distanceToUid(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
-            return false, "lost range to egg"
+            return false, "lost range to egg (dist=" .. tostring(dist) .. ")"
         end
 
-        -- compute key if first-area
+        -- 5. compute slot key if first-area
         local slotKey
         if AreaEggSlotIdentity.LooksLikeFirstAreaUid(egg.uid) then
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
-        else
-            slotKey = nil
         end
 
+        -- 6. fire carry
         local fired, err = Remotes.EggWorld.AskFieldEggCarry:InvokeServer({
             Uid = egg.uid,
             FirstAreaSlotKey = slotKey,
         })
         if not fired then return false, "carry rejected: " .. tostring(err) end
 
-        -- wait for IsCarrying == true
+        -- 7. wait for IsCarrying
         local started = waitFor(function()
             local cs = EggState.ReadCarryState()
             return cs and cs.IsCarrying == true
         end, M.CARRY_FIRE_TIMEOUT)
-        if not started then return false, "carry state never started" end
+        if not started then return false, "carry never started" end
 
-        -- walk back to safe zone
-        local safePos = safeZoneTarget()
-        if not safePos then return false, "cannot find safe-zone target" end
-        local returned = walkTo(safePos, 3, M.RETURN_TIMEOUT)
-        if not returned then return false, "walk home timed out" end
+        -- 8. walk home
+        local safe = safeZoneTarget()
+        if not safe then return false, "cannot compute safe target" end
+        if not walkTo(safe, 3, M.RETURN_TIMEOUT) then
+            return false, "walk home timed out"
+        end
 
-        -- wait for IsCarrying == false (server drops it automatically)
+        -- 9. wait for carry to end
         local dropped = waitFor(function()
             local cs = EggState.ReadCarryState()
             return cs and cs.IsCarrying == false
@@ -197,32 +224,40 @@ return function(ctx)
     local function loop()
         local fails = 0
         while running do
-            local ok, why = carryOnce()
-            if ok then
-                fails = 0
-                if lib then lib:Notify({ Title = "Auto Egg", Content = "Delivered.", Duration = 2 }) end
-                task.wait(0.8)  -- small gap before next egg
-            else
-                fails = fails + 1
-                if lib then lib:Notify({ Title = "Auto Egg", Content = "Retry " .. fails .. ": " .. tostring(why), Duration = 2 }) end
-                if fails >= M.MAX_FAILS then
-                    running = false
-                    if lib then lib:Notify({ Title = "Auto Egg", Content = "Stopping after " .. fails .. " failures.", Duration = 4 }) end
-                    break
-                end
-                task.wait(1.5)
+            local ok, why = pcall(carryOnce)
+            if ok and why == nil then
+                -- hmm, pcall returns (true, returnVal) — but carryOnce returns two values
+                -- we need to grab them properly
             end
+            -- correct pcall for two returns:
+            local okCall, result, reason = pcall(carryOnce)
+            if not okCall then
+                log("carryOnce error: " .. tostring(result))
+                fails = fails + 1
+            elseif result == true then
+                log("delivered")
+                fails = 0
+                task.wait(0.8)
+            else
+                log("fail: " .. tostring(reason or result))
+                fails = fails + 1
+            end
+            if fails >= M.MAX_FAILS then
+                log("stopping after " .. fails .. " failures")
+                running = false
+                break
+            end
+            task.wait(1.2)
         end
     end
 
     function M:Start()
         if running then return end
-        if not loadDeps() then
-            if lib then lib:Notify({ Title = "Auto Egg", Content = "Failed to load dependencies.", Duration = 4 }) end
-            return
-        end
+        if not loadDeps() then return end
+        if not Finder then log("no Finder injected") return end
         running = true
         thread = task.spawn(loop)
+        log("started")
     end
 
     function M:Stop()
@@ -232,11 +267,15 @@ return function(ctx)
             thread = nil
         end
         local hum = humanoid()
-        if hum then hum:MoveTo(pos() or hum.Parent.Position) end
+        if hum then
+            local p = pos()
+            if p then hum:MoveTo(p) end
+        end
+        log("stopped")
     end
 
     getgenv()._TEST_AutoEggStart = function() M:Start() end
     getgenv()._TEST_AutoEggStop  = function() M:Stop()  end
-  
+
     return M
 end
