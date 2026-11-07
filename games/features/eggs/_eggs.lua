@@ -1,11 +1,15 @@
 return function(lib, window, Manager, loadModule)
     local tab = window:CreateTab("Farming")
 
+    -- Load the modules
     local Finder = loadModule("features/eggs/field_egg_finder.lua")({ lib = lib })
+    local Env    = loadModule("features/eggs/environment.lua")({ lib = lib })
 
     local options = {
         fields           = {},
         allowedMutations = {},
+        rarities         = {},
+        priority         = "Nearest",
     }
 
     local Carry = loadModule("features/eggs/carry_loop.lua")({
