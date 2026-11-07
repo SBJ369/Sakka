@@ -1,6 +1,6 @@
 -- games/features/eggs/carry_loop.lua
--- Auto-carry cycle. Uses RunService.RenderStepped to force movement.
--- Delivery walks directly to the center of StartArea.
+-- Auto-carry cycle. Queries eggs from the snapshot first, then walks to the target.
+-- No more blind "walk into field" step. If no eggs match, it waits in the safe zone.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -35,7 +35,7 @@ return function(ctx)
     end
 
     M.CARRY_RANGE        = 10
-    M.WALK_TIMEOUT       = 30
+    M.WALK_TIMEOUT       = 120  -- Increased to allow walking across the map
     M.CARRY_FIRE_TIMEOUT = 5
     M.RETURN_TIMEOUT     = 45
     M.DROP_TIMEOUT       = 8
@@ -61,35 +61,10 @@ return function(ctx)
         return p and p.Position
     end
 
-    local function separationLine()
-        local world = Workspace:FindFirstChild("World")
-        local areas = world and world:FindFirstChild("Areas")
-        return areas and areas:FindFirstChild("SeparationLine")
-    end
-
     local function startArea()
         local world = Workspace:FindFirstChild("World")
         local areas = world and world:FindFirstChild("Areas")
         return areas and areas:FindFirstChild("StartArea")
-    end
-
-    local function sideOfLine()
-        local p = pos()
-        local line = separationLine()
-        if not p or not line then return nil end
-        return p.Z - line.Position.Z
-    end
-
-    local function isFieldSide()
-        local z = sideOfLine()
-        return z ~= nil and z < 0
-    end
-
-    local function fieldTarget()
-        local p = pos()
-        local line = separationLine()
-        if not p or not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z - 10)
     end
 
     local function filterFingerprint()
@@ -175,7 +150,7 @@ return function(ctx)
     end
 
     local function buildFinderOpts()
-        local opts = { maxDist = 600 }
+        local opts = { maxDist = 6000 } -- Increased maxDist to find eggs across the whole map
         local fields = options.fields or {}
         if #fields == 1 then
             opts.areaId = fields[1]
@@ -195,25 +170,21 @@ return function(ctx)
 
         local fp = filterFingerprint()
 
-        if not isFieldSide() then
-            local ft = fieldTarget()
-            if not ft then return false, "no field target", "hard" end
-            local ok, why = walkTo(ft, 5, 20, fp)
-            if why == "aborted" then return false, "filter changed", "soft" end
-            if not ok then return false, "walk to field timed out", "hard" end
-            if not isFieldSide() then
-                local p, l = pos(), separationLine()
-                return false, ("not in field (z=%.1f line=%.1f)"):format(p.Z, l.Position.Z), "hard"
-            end
+        -- 1. Query the server for eggs based on the selected filters.
+        -- This works from anywhere on the map, including the safe zone.
+        local egg = Finder:Nearest(buildFinderOpts())
+        
+        -- If no eggs match the filter, wait for them to respawn.
+        if not egg then 
+            return false, "no egg matching filters (waiting for respawn)", "soft" 
         end
 
-        local egg = Finder:Nearest(buildFinderOpts())
-        if not egg then return false, "no egg matching filters", "soft" end
-
+        -- 2. Walk directly to the egg. The path naturally takes us out of the safe zone.
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
         if why == "aborted" then return false, "filter changed", "soft" end
         if not ok then return false, "walk to egg timed out", "hard" end
 
+        -- 3. Verify range before firing remote
         local dist = Finder:DistanceTo(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
             return false, "lost range to egg", "soft"
@@ -224,6 +195,7 @@ return function(ctx)
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
+        -- 4. Fire the remote
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -250,6 +222,7 @@ return function(ctx)
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
+        -- 5. Walk to the StartArea to deliver
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return", "hard" end
 
@@ -266,7 +239,6 @@ return function(ctx)
         local returnAborted = false
         local connReturn
         
-        -- This is the exact logic from the standalone test script that worked.
         connReturn = RunService.RenderStepped:Connect(function()
             if carryEnded then
                 pcall(function() humReturn:Move(Vector3.zero) end)
@@ -286,17 +258,14 @@ return function(ctx)
             local p = pos()
             if not sa or not p then return end
 
-            -- Target the absolute center of StartArea
             local targetPos = sa.Position
             local delta = targetPos - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
             
             if horiz.Magnitude <= 3 then
-                -- Stop if we are within 3 studs of the center
                 pcall(function() humReturn:Move(Vector3.zero) end)
                 reachedSafe = true
             else
-                -- Force movement toward target
                 pcall(function() humReturn:Move(horiz.Unit) end)
             end
         end)
@@ -337,8 +306,6 @@ return function(ctx)
             return false, "server ended carry but client shows carrying", "hard"
         end
         
-        -- If we get here, the server dropped the egg. 
-        -- We don't even need to check "insideStart" anymore because the server accepted it.
         return true, nil
     end
 
