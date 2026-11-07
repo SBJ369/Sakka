@@ -55,6 +55,11 @@ return function(lib, window, Manager, loadModule)
         Text = "Go to My Plot Upgrade",
         Callback = function() EnvTest:WalkToUpgrade() end,
     })
+    
+    tab:AddButton({
+        Text = "Go to Treadmill Upgrade Board",
+        Callback = function() EnvTest:WalkToTreadmillUpgrade() end,
+    })
 
     tab:AddSection("Auto Egg")
 
