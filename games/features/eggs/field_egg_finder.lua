@@ -9,27 +9,6 @@ return function(ctx)
     local Assets
     local Directory
 
-    -- Rank lookup (from the game's configs)
-    local RARITY_RANKS = {
-        Common = 1,
-        Uncommon = 2,
-        SuperRare = 2,
-        Rare = 3,
-        Epic = 4,
-        Legendary = 5,
-        Mythic = 6,
-        Rainbow = 6,
-        BrainrotGod = 6,
-        Cosmic = 7,
-        Secret = 8,
-        Eternal = 9,
-        Limited = 9,
-        Divine = 10,
-        Transcendent = 10,
-        Titan = 11,
-        LightDark = 12,
-    }
-
     local function getRemotes()
         if Remotes then return Remotes end
         local ok, r = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -71,6 +50,17 @@ return function(ctx)
         return bottom.Position + Vector3.new(0, lift, 0)
     end
 
+    -- Gets the exact rarity string from the game's Directory
+    local function getEggRarity(record)
+        local dir = getDirectory()
+        if dir and dir[record.AssetCategory] then
+            local data = dir[record.AssetCategory]
+            -- The game stores it as `.Rarity` (string) in the Directory
+            return data.Rarity or "Common"
+        end
+        return "Common"
+    end
+
     local function passesFilters(record, opts)
         if opts.slotOnly ~= false and record.State ~= "Slot" then return false end
         if opts.areaId and record.AreaId ~= opts.areaId then return false end
@@ -97,26 +87,17 @@ return function(ctx)
             if not hit then return false end
         end
 
-        -- Rarity Rank Check
+        -- Rarity EXACT MATCH Check
         if opts.rarities and #opts.rarities > 0 then
-            local dir = getDirectory()
-            if dir and dir[record.AssetCategory] then
-                local assetData = dir[record.AssetCategory]
-                local tier = assetData.Rarity or "Common"
-                local eggRank = RARITY_RANKS[tier] or 1
-                
-                local match = false
-                for _, selectedTier in ipairs(opts.rarities) do
-                    local selectedRank = RARITY_RANKS[selectedTier] or 1
-                    if eggRank >= selectedRank then
-                        match = true
-                        break
-                    end
+            local tier = getEggRarity(record)
+            local match = false
+            for _, selectedTier in ipairs(opts.rarities) do
+                if selectedTier == tier then
+                    match = true
+                    break
                 end
-                if not match then return false end
-            else
-                return false -- Unknown category
             end
+            if not match then return false end
         end
 
         return true
@@ -129,15 +110,7 @@ return function(ctx)
         local me = self:GetMyPosition()
         if not me then return nil end
 
-        local dir = getDirectory()
-
         local function buildResult(record, pos, dist)
-            local tier = "Common"
-            local rank = 1
-            if dir and dir[record.AssetCategory] then
-                tier = dir[record.AssetCategory].Rarity or "Common"
-                rank = RARITY_RANKS[tier] or 1
-            end
             return {
                 uid         = record.Uid,
                 record      = record,
@@ -148,8 +121,7 @@ return function(ctx)
                 category    = record.AssetCategory,
                 mutation    = record.BaseMutation,
                 hasParasite = record.HasParasite,
-                rank        = rank,
-                rarity      = tier,
+                rarity      = getEggRarity(record),
             }
         end
 
@@ -178,7 +150,9 @@ return function(ctx)
 
         -- Single-pass: find nearest or rarest
         local bestR, bestD, bestPos
-        local bestRank = -1
+        
+        -- For "Rarest", we'll use the VisualOdds value to determine rarity instead of Rank
+        local bestOdds = -1
 
         for _, record in ipairs(records) do
             if passesFilters(record, opts) then
@@ -188,19 +162,20 @@ return function(ctx)
                     local validDist = (not opts.maxDist or d <= opts.maxDist)
                     
                     if validDist then
-                        local rank = 1
-                        if dir and dir[record.AssetCategory] then
-                            local tier = dir[record.AssetCategory].Rarity or "Common"
-                            rank = RARITY_RANKS[tier] or 1
-                        end
-
                         if opts.priority == "Rarest" then
-                            if rank > bestRank then
-                                bestR, bestD, bestPos, bestRank = record, d, pos, rank
+                            -- Use VisualOdds to find the mathematically rarest
+                            local odds = 1
+                            local dir = getDirectory()
+                            if dir and dir[record.AssetCategory] then
+                                odds = dir[record.AssetCategory].VisualOdds or 1
+                            end
+                            if odds > bestOdds then
+                                bestR, bestD, bestPos, bestOdds = record, d, pos, odds
                             end
                         else
+                            -- Nearest
                             if (not bestD or d < bestD) then
-                                bestR, bestD, bestPos, bestRank = record, d, pos, rank
+                                bestR, bestD, bestPos = record, d, pos
                             end
                         end
                     end
