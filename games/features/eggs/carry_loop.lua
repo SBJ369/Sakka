@@ -1,9 +1,8 @@
 -- games/features/eggs/carry_loop.lua
--- Auto-carry cycle. Walks to nearest matching egg, carries it, walks deep into
--- the safe zone to escape monster aggro before the server tick drops the carry.
--- Uses RunService.RenderStepped to assert Humanoid:Move.
--- Fields filter is read live each cycle; if no fields are selected the loop
--- soft-waits instead of aborting.
+-- Auto-carry cycle. Walks to nearest matching egg, carries it, walks to the
+-- StartArea plane (Workspace.World.Areas.StartArea). Delivery fires when the
+-- character crosses into StartArea's bounds. Uses RunService.RenderStepped to
+-- assert Humanoid:Move. Fields filter is read live each cycle; no fields = soft wait.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -17,7 +16,7 @@ return function(ctx)
 
     local M = {}
     local LocalPlayer = Players.LocalPlayer
-    local Remotes, EggState, AreaEggSlotIdentity, PlotState
+    local Remotes, EggState, AreaEggSlotIdentity
 
     local function log(msg)
         if lib and lib.Notify then
@@ -32,7 +31,6 @@ return function(ctx)
             Remotes = require(ReplicatedStorage.Shared.Remotes)
             EggState = require(ReplicatedStorage.Client.EggState)
             AreaEggSlotIdentity = require(ReplicatedStorage.Shared.Util.AreaEggSlotIdentity)
-            PlotState = require(ReplicatedStorage.Client.PlotState)
         end)
         if not ok then log("loadDeps: " .. tostring(err)) end
         return ok
@@ -46,7 +44,6 @@ return function(ctx)
     M.MAX_FAILS          = 3
     M.STALE_EVENT_WINDOW = 0.2
     M.SOFT_WAIT          = 3
-    M.SAFE_OVERSHOOT     = 20
 
     local running = false
     local thread
@@ -72,6 +69,12 @@ return function(ctx)
         return areas and areas:FindFirstChild("SeparationLine")
     end
 
+    local function startArea()
+        local world = Workspace:FindFirstChild("World")
+        local areas = world and world:FindFirstChild("Areas")
+        return areas and areas:FindFirstChild("StartArea")
+    end
+
     local function sideOfLine()
         local p = pos()
         local line = separationLine()
@@ -84,9 +87,32 @@ return function(ctx)
         return z ~= nil and z < 0
     end
 
-    local function isSafeSide()
-        local z = sideOfLine()
-        return z ~= nil and z >= 0
+    -- true when the character is inside the StartArea bounds (safe zone trigger)
+    local function isInsideStartArea()
+        local p = pos()
+        local sa = startArea()
+        if not p or not sa or not sa:IsA("BasePart") then return false end
+        local halfX = sa.Size.X * 0.5
+        local halfZ = sa.Size.Z * 0.5
+        local dx = math.abs(p.X - sa.Position.X)
+        local dz = math.abs(p.Z - sa.Position.Z)
+        return dx <= halfX and dz <= halfZ
+    end
+
+    -- target point: character X (clamped to StartArea bounds), at StartArea Z
+    local function safeZoneTarget()
+        local p = pos()
+        if not p then return nil end
+        local sa = startArea()
+        if not sa or not sa:IsA("BasePart") then
+            -- fallback: use separation line + 20
+            local line = separationLine()
+            if not line then return nil end
+            return Vector3.new(p.X, p.Y, line.Position.Z + 20)
+        end
+        local halfX = sa.Size.X * 0.5
+        local targetX = math.clamp(p.X, sa.Position.X - halfX + 3, sa.Position.X + halfX - 3)
+        return Vector3.new(targetX, p.Y, sa.Position.Z)
     end
 
     local function fieldTarget()
@@ -193,7 +219,6 @@ return function(ctx)
     end
 
     local function carryOnce()
-        -- soft-wait if no fields are selected
         if not options.fields or #options.fields == 0 then
             return false, "no fields selected", "soft"
         end
@@ -284,20 +309,22 @@ return function(ctx)
                 connReturn = nil
                 return
             end
+            -- if we're inside the StartArea, hold position for server tick
+            if isInsideStartArea() then
+                pcall(function() humReturn:Move(Vector3.zero) end)
+                reachedSafe = true
+                return
+            end
+            local target = safeZoneTarget()
             local p = pos()
-            local line = separationLine()
-            if not p or not line then return end
-            local deepTarget = Vector3.new(p.X, p.Y, line.Position.Z + M.SAFE_OVERSHOOT)
-            local delta = deepTarget - p
+            if not target or not p then return end
+            local delta = target - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
             if horiz.Magnitude <= 3 then
                 pcall(function() humReturn:Move(Vector3.zero) end)
                 reachedSafe = true
             else
                 pcall(function() humReturn:Move(horiz.Unit) end)
-                if horiz.Magnitude <= 8 then
-                    reachedSafe = true
-                end
             end
         end)
 
@@ -326,24 +353,24 @@ return function(ctx)
         if connEvent then pcall(function() connEvent:Disconnect() end) end
 
         local csNow = EggState.ReadCarryState()
-        local safeNow = isSafeSide()
-        log(("return: reachedSafe=%s carryEnded=%s safeSide=%s cs=%s"):format(
-            tostring(reachedSafe), tostring(carryEnded), tostring(safeNow),
+        local insideStart = isInsideStartArea()
+        log(("return: reachedSafe=%s carryEnded=%s insideStart=%s cs=%s"):format(
+            tostring(reachedSafe), tostring(carryEnded), tostring(insideStart),
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            if reachedSafe and safeNow and csNow and not csNow.IsCarrying then
-                log("delivered (fallback: reachedSafe + safeSide + cs=false)")
+            if reachedSafe and insideStart and csNow and not csNow.IsCarrying then
+                log("delivered (fallback: reachedSafe + insideStart + cs=false)")
                 return true, nil
             end
-            return false, ("server never confirmed carry-end (reachedSafe=%s safeSide=%s cs=%s)"):format(
-                tostring(reachedSafe), tostring(safeNow), tostring(csNow and csNow.IsCarrying)), "hard"
+            return false, ("server never confirmed carry-end (reachedSafe=%s insideStart=%s cs=%s)"):format(
+                tostring(reachedSafe), tostring(insideStart), tostring(csNow and csNow.IsCarrying)), "hard"
         end
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying", "hard"
         end
-        if not safeNow then
-            return false, "carry ended but we're on field side (likely caught)", "hard"
+        if not insideStart then
+            return false, "carry ended but not inside StartArea (likely caught)", "hard"
         end
         return true, nil
     end
