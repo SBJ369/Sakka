@@ -9,22 +9,6 @@ return function(ctx)
     local Assets
     local Directory
 
-    -- Exact mapping from the game's Rarity.Configs
-    local RANK_TO_STRING = {
-        [1] = "Common",
-        [2] = "Uncommon",   -- (and SuperRare)
-        [3] = "Rare",
-        [4] = "Epic",
-        [5] = "Legendary",
-        [6] = "Mythic",     -- (and Rainbow, BrainrotGod)
-        [7] = "Cosmic",
-        [8] = "Secret",
-        [9] = "Eternal",    -- (and Limited)
-        [10] = "Divine",    -- (and Transcendent)
-        [11] = "Titan",
-        [12] = "LightDark",
-    }
-
     local function getRemotes()
         if Remotes then return Remotes end
         local ok, r = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -66,32 +50,15 @@ return function(ctx)
         return bottom.Position + Vector3.new(0, lift, 0)
     end
 
-    -- Safely gets the rarity string by checking Rank -> VisualOdds fallback
+    -- Read the exact Rarity object from the game's directory
     local function getEggRarity(record)
         local dir = getDirectory()
         if dir and dir[record.AssetCategory] then
             local data = dir[record.AssetCategory]
-            
-            -- 1. Try the Rank field directly
-            local rank = data.Rank
-            if rank and RANK_TO_STRING[rank] then
-                return RANK_TO_STRING[rank]
+            if data.Rarity then
+                -- The Rarity field is a table. We check for _id or Name.
+                return data.Rarity._id or data.Rarity.Name or "Common"
             end
-            
-            -- 2. If no rank, try to estimate from VisualOdds
-            local odds = data.VisualOdds or 1
-            if odds >= 1000000000 then return "LightDark"
-            elseif odds >= 250000000 then return "Titan"
-            elseif odds >= 50000000 then return "Divine"
-            elseif odds >= 10000000 then return "Eternal"
-            elseif odds >= 2000000 then return "Secret"
-            elseif odds >= 500000 then return "Cosmic"
-            elseif odds >= 100000 then return "Mythic"
-            elseif odds >= 20000 then return "Legendary"
-            elseif odds >= 5000 then return "Epic"
-            elseif odds >= 1000 then return "Rare"
-            elseif odds >= 250 then return "Uncommon"
-            else return "Common" end
         end
         return "Common"
     end
@@ -160,7 +127,6 @@ return function(ctx)
             }
         end
 
-        -- If areaPriority is set, iterate priorities in order
         if opts.areaPriority and #opts.areaPriority > 0 then
             for _, priorityArea in ipairs(opts.areaPriority) do
                 local bestR, bestD, bestPos
@@ -183,7 +149,6 @@ return function(ctx)
             return nil
         end
 
-        -- Single-pass: find nearest or rarest
         local bestR, bestD, bestPos
         local bestOdds = -1
 
