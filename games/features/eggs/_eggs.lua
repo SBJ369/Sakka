@@ -4,7 +4,6 @@ return function(lib, window, Manager, loadModule)
     -- Load the modules
     local Finder = loadModule("features/eggs/field_egg_finder.lua")({ lib = lib })
     local Env    = loadModule("features/eggs/environment.lua")({ lib = lib })
-    local EnvTest = loadModule("features/eggs/env_test.lua")({ lib = lib, Env = Env })
 
     local options = {
         fields           = {},
@@ -17,48 +16,6 @@ return function(lib, window, Manager, loadModule)
         lib = lib,
         Finder = Finder,
         options = options,
-    })
-
-    tab:AddSection("Environment Test")
-    
-    tab:AddButton({
-        Text = "Go to Fuse Machine",
-        Callback = function() EnvTest:WalkToFuse() end,
-    })
-    
-    tab:AddButton({
-        Text = "Go to Trail Shop",
-        Callback = function() EnvTest:WalkToShop() end,
-    })
-    
-    tab:AddButton({
-        Text = "Go to Sell Stand",
-        Callback = function() EnvTest:WalkToSell() end,
-    })
-    
-    tab:AddButton({
-        Text = "Go to My Treadmill",
-        Callback = function() EnvTest:WalkToTreadmill() end,
-    })
-    
-    tab:AddButton({
-        Text = "Go to My Plot Center",
-        Callback = function() EnvTest:WalkToPlot() end,
-    })
-    
-    tab:AddButton({
-        Text = "Stop Walking",
-        Callback = function() EnvTest:Stop() end,
-    })
-
-    tab:AddButton({
-        Text = "Go to My Plot Upgrade",
-        Callback = function() EnvTest:WalkToUpgrade() end,
-    })
-    
-    tab:AddButton({
-        Text = "Go to Treadmill Upgrade Board",
-        Callback = function() EnvTest:WalkToTreadmillUpgrade() end,
     })
 
     tab:AddSection("Auto Egg")
