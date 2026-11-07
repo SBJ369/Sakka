@@ -31,23 +31,18 @@ return function(ctx)
     end
 
     -- Helper to get weight and value of a pet
-    local function getPetStats(uid, petData)
-        -- Decode the pet using the game's own logic
-        -- The Inventory save data in some games is raw, but we can reconstruct it
-        -- AssetItems.Decode usually takes the table directly if it's already parsed
+    local function getPetStats(petData)
         local ok, decoded = pcall(function()
             return AssetItems.Decode(petData)
         end)
         
         if not ok or not decoded then
-            -- Fallback if Decode expects a string
             return 0, 0
         end
 
-        -- These are the standard properties in this game
-        -- If they are named differently, we will print them out
+        -- Extract weight and value/rate based on the decoded object
         local weight = decoded.Weight or decoded.Mass or 0
-        local value = decoded.Rate or decoded.Income or decoded.MoneyPerSecond or 0
+        local value = decoded.Rate or decoded.Income or decoded.MoneyPerSecond or decoded.Value or 0
         
         return weight, value
     end
@@ -67,7 +62,10 @@ return function(ctx)
 
         local toSell = {}
         for uid, data in pairs(mySave.Inventory) do
-            local weight = getPetStats(uid, data)
+            local weight = getPetStats(data)
+            -- Debug print to see if the calculation works
+            -- print("Pet:", data.Category, "Weight:", weight)
+            
             if weight > 0 and weight <= maxWeight then
                 table.insert(toSell, uid)
             end
@@ -90,7 +88,10 @@ return function(ctx)
 
         local toSell = {}
         for uid, data in pairs(mySave.Inventory) do
-            local _, value = getPetStats(uid, data)
+            local _, value = getPetStats(data)
+            -- Debug print
+            -- print("Pet:", data.Category, "Value:", value)
+
             if value > 0 and value <= maxValue then
                 table.insert(toSell, uid)
             end
