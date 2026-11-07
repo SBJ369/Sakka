@@ -1,9 +1,9 @@
 -- games/features/eggs/carry_loop.lua
 -- Full auto-carry cycle. Uses RunService.RenderStepped to assert Humanoid:Move.
--- Walk-home target is the plot respawn CFrame (inside pen area).
+-- Walks to nearest egg, carries it, returns to safe zone (past SeparationLine).
 -- Uses raw FieldEggCarry event as authoritative carry start/end signal.
--- Listener is connected BEFORE firing AskFieldEggCarry to avoid missing
--- the event during the InvokeServer yield.
+-- Listener connects BEFORE firing AskFieldEggCarry to avoid race.
+-- Soft fails (transient) do NOT count toward the MAX_FAILS abort.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -45,6 +45,7 @@ return function(ctx)
     M.DROP_TIMEOUT       = 8
     M.MAX_FAILS          = 3
     M.STALE_EVENT_WINDOW = 0.2
+    M.SOFT_WAIT          = 3
 
     local running = false
     local thread
@@ -82,23 +83,17 @@ return function(ctx)
         return z ~= nil and z < 0
     end
 
-    local function isInsidePen()
-        local p = pos()
-        if not p then return false end
-        local ok, inside = pcall(function() return PlotState.ContainsLocalPoint(p) end)
-        return ok and inside == true
+    local function isSafeSide()
+        local z = sideOfLine()
+        return z ~= nil and z >= 0
     end
 
+    -- delivery target: 5 studs past the separation line into the safe zone
     local function safeZoneTarget()
         local p = pos()
-        if not p then return nil end
-        local ok, plot = pcall(function() return PlotState.ResolvePlot() end)
-        if ok and plot and plot.RespawnPointCFrame then
-            return plot.RespawnPointCFrame.Position
-        end
         local line = separationLine()
-        if not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z + 8)
+        if not p or not line then return nil end
+        return Vector3.new(p.X, p.Y, line.Position.Z + 5)
     end
 
     local function fieldTarget()
@@ -167,14 +162,10 @@ return function(ctx)
         return false
     end
 
-    -- build Finder:Nearest options from current user settings
     local function buildFinderOpts()
         local opts = { maxDist = 600 }
         if options.fieldFilter and options.fieldFilter ~= "Any" then
             opts.areaId = options.fieldFilter
-        end
-        if options.skipParasite then
-            opts.noParasite = true
         end
         if options.allowedMutations and #options.allowedMutations > 0 then
             opts.mutations = options.allowedMutations
@@ -182,30 +173,31 @@ return function(ctx)
         return opts
     end
 
+    -- returns (ok, reason, kind) where kind is "soft" or "hard" or nil on success
     local function carryOnce()
         -- 1. ensure we're on field side
         if not isFieldSide() then
             local ft = fieldTarget()
-            if not ft then return false, "no field target" end
-            if not walkTo(ft, 5, 20) then return false, "walk to field timed out" end
+            if not ft then return false, "no field target", "hard" end
+            if not walkTo(ft, 5, 20) then return false, "walk to field timed out", "hard" end
             if not isFieldSide() then
                 local p, l = pos(), separationLine()
-                return false, ("not in field (z=%.1f line=%.1f)"):format(p.Z, l.Position.Z)
+                return false, ("not in field (z=%.1f line=%.1f)"):format(p.Z, l.Position.Z), "hard"
             end
         end
 
-        -- 2. find nearest egg (respecting user filters)
+        -- 2. find nearest egg (respecting filters)
         local egg = Finder:Nearest(buildFinderOpts())
-        if not egg then return false, "no egg matching filters" end
+        if not egg then return false, "no egg matching filters", "soft" end
 
         -- 3. walk to egg
         if not walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT) then
-            return false, "walk to egg timed out"
+            return false, "walk to egg timed out", "hard"
         end
 
         local dist = distanceToUid(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
-            return false, "lost range to egg"
+            return false, "lost range to egg", "soft"
         end
 
         -- 4. compute slot key
@@ -214,7 +206,7 @@ return function(ctx)
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        -- 5. CONNECT LISTENER FIRST, then fire
+        -- 5. connect listener BEFORE firing
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -228,18 +220,23 @@ return function(ctx)
         })
         if not fired then
             if connStart then pcall(function() connStart:Disconnect() end) end
-            return false, "carry rejected: " .. tostring(err)
+            -- transient rejections are soft
+            local e = tostring(err or "")
+            if e:find("Already carrying") or e:find("First area egg unavailable") then
+                return false, "carry rejected: " .. e, "soft"
+            end
+            return false, "carry rejected: " .. e, "hard"
         end
 
         if not waitFor(function() return carryStarted end, M.CARRY_FIRE_TIMEOUT) then
             if connStart then pcall(function() connStart:Disconnect() end) end
-            return false, "carry never started"
+            return false, "carry never started", "hard"
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
         -- 6. walk home
         local humReturn = humanoid()
-        if not humReturn then return false, "no humanoid for return" end
+        if not humReturn then return false, "no humanoid for return", "hard" end
 
         local pickupTime = os.clock()
         local carryEnded = false
@@ -293,21 +290,22 @@ return function(ctx)
         if connEvent then pcall(function() connEvent:Disconnect() end) end
 
         local csNow = EggState.ReadCarryState()
-        local insidePen = isInsidePen()
-        log(("return: reachedSafe=%s carryEnded=%s insidePen=%s cs=%s"):format(
-            tostring(reachedSafe), tostring(carryEnded), tostring(insidePen),
+        local safeNow = isSafeSide()
+        log(("return: reachedSafe=%s carryEnded=%s safeSide=%s cs=%s"):format(
+            tostring(reachedSafe), tostring(carryEnded), tostring(safeNow),
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            if reachedSafe and insidePen and csNow and not csNow.IsCarrying then
-                log("delivered (fallback: reachedSafe + insidePen + cs=false)")
+            -- fallback: reached safe target, past line, client shows not carrying
+            if reachedSafe and safeNow and csNow and not csNow.IsCarrying then
+                log("delivered (fallback: reachedSafe + safeSide + cs=false)")
                 return true, nil
             end
-            return false, ("server never confirmed carry-end (reachedSafe=%s insidePen=%s cs=%s)"):format(
-                tostring(reachedSafe), tostring(insidePen), tostring(csNow and csNow.IsCarrying))
+            return false, ("server never confirmed carry-end (reachedSafe=%s safeSide=%s cs=%s)"):format(
+                tostring(reachedSafe), tostring(safeNow), tostring(csNow and csNow.IsCarrying)), "hard"
         end
         if csNow and csNow.IsCarrying then
-            return false, "server ended carry but client shows carrying"
+            return false, "server ended carry but client shows carrying", "hard"
         end
 
         return true, nil
@@ -315,27 +313,40 @@ return function(ctx)
 
     local function loop()
         local fails = 0
+        local lastSoftReason = nil
         while running do
-            local okCall, result, reason = pcall(carryOnce)
+            local okCall, result, reason, kind = pcall(carryOnce)
             if not running then break end
+
             if not okCall then
                 log("error: " .. tostring(result))
                 fails = fails + 1
+                lastSoftReason = nil
             elseif result == true then
                 log("delivered")
                 fails = 0
+                lastSoftReason = nil
                 task.wait(0.8)
+            elseif kind == "soft" then
+                -- silent wait: only log when the reason changes
+                if reason ~= lastSoftReason then
+                    log("waiting: " .. tostring(reason))
+                    lastSoftReason = reason
+                end
+                task.wait(M.SOFT_WAIT)
             else
                 log("fail: " .. tostring(reason or "unknown"))
                 fails = fails + 1
+                lastSoftReason = nil
                 task.wait(0.6)
             end
+
             if fails >= M.MAX_FAILS then
                 log("stopping after " .. fails .. " failures")
                 running = false
                 break
             end
-            task.wait(0.4)
+            if kind ~= "soft" then task.wait(0.4) end
         end
     end
 
