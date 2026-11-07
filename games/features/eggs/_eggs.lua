@@ -51,6 +51,11 @@ return function(lib, window, Manager, loadModule)
         Callback = function() EnvTest:Stop() end,
     })
 
+    tab:AddButton({
+        Text = "Go to My Plot Upgrade",
+        Callback = function() EnvTest:WalkToUpgrade() end,
+    })
+
     tab:AddSection("Auto Egg")
 
     local masterToggle = tab:AddToggle({
