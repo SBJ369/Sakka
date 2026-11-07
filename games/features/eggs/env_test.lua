@@ -1,6 +1,4 @@
 -- games/features/eggs/env_test.lua
--- Simple test to walk to each environment location.
-
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 
@@ -53,8 +51,10 @@ return function(ctx)
             
             local delta = targetPos - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
-            
-            if horiz.Magnitude <= 4 then
+            local dist = horiz.Magnitude
+
+            -- If very close, hard stop
+            if dist <= 3 then
                 hum:Move(Vector3.zero)
                 done = true
                 isWalking = false
@@ -64,11 +64,17 @@ return function(ctx)
                 return
             end
             
-            hum:Move(horiz.Unit)
+            -- Deceleration zone: if within 15 studs, scale down movement speed
+            if dist < 15 then
+                -- Normalize direction and multiply by (dist / 15) to slow down
+                local slowDir = horiz.Unit * (dist / 15)
+                hum:Move(slowDir)
+            else
+                hum:Move(horiz.Unit)
+            end
         end)
 
-        -- Fail-safe timeout
-        task.delay(30, function()
+        task.delay(45, function()
             if not done then
                 done = true
                 isWalking = false
@@ -92,6 +98,7 @@ return function(ctx)
     function M:WalkToSell() walkTo(Env:GetStatic("SellStand"), "Sell Stand") end
     function M:WalkToTreadmill() walkTo(Env:GetMyTreadmill(), "My Treadmill") end
     function M:WalkToPlot() walkTo(Env:GetMyPlotCenter(), "My Plot Center") end
+    function M:WalkToUpgrade() walkTo(Env:GetMyPlotUpgrade(), "My Plot Upgrade") end
 
     return M
 end
