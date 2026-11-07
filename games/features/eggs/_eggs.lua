@@ -19,24 +19,9 @@ return function(lib, window, Manager, loadModule)
     local masterToggle = tab:AddToggle({
         Text = "Auto Get Egg",
         Default = false,
-        Note = "Select at least one field below, then toggle this on.",
+        Note = "Select at least one field below. Loop waits until you do.",
         Callback = function(on)
-            warn("[_eggs] master cb on=" .. tostring(on)
-                .. " suppress=" .. tostring(Manager._suppress)
-                .. " fields=" .. #(options.fields or {}))
-            if Manager._suppress then
-                warn("[_eggs] master cb bailing (suppressed)")
-                return
-            end
-            if on and #options.fields == 0 then
-                lib:Notify({ Title = "Auto Egg", Content = "Select at least one field first.", Duration = 3 })
-                if masterToggle then
-                    Manager._suppress = true
-                    pcall(function() masterToggle:Set(false) end)
-                    Manager._suppress = false
-                end
-                return
-            end
+            if Manager._suppress then return end
             Manager.Toggle("auto_get_egg", on)
         end,
     })
@@ -111,15 +96,7 @@ return function(lib, window, Manager, loadModule)
 
     Manager.Register("auto_get_egg", {
         toggle    = masterToggle,
-        onEnable  = function()
-            warn("[_eggs] onEnable fired, calling Carry:Start()")
-            Carry:Start()
-            warn("[_eggs] Carry:Start() returned")
-        end,
-        onDisable = function()
-            warn("[_eggs] onDisable fired, calling Carry:Stop()")
-            Carry:Stop()
-            warn("[_eggs] Carry:Stop() returned")
-        end,
+        onEnable  = function() Carry:Start() end,
+        onDisable = function() Carry:Stop() end,
     })
 end
