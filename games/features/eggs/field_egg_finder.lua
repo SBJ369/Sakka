@@ -9,6 +9,22 @@ return function(ctx)
     local Assets
     local Directory
 
+    -- Exact mapping from the game's Rarity.Configs
+    local RANK_TO_STRING = {
+        [1] = "Common",
+        [2] = "Uncommon",   -- (and SuperRare)
+        [3] = "Rare",
+        [4] = "Epic",
+        [5] = "Legendary",
+        [6] = "Mythic",     -- (and Rainbow, BrainrotGod)
+        [7] = "Cosmic",
+        [8] = "Secret",
+        [9] = "Eternal",    -- (and Limited)
+        [10] = "Divine",    -- (and Transcendent)
+        [11] = "Titan",
+        [12] = "LightDark",
+    }
+
     local function getRemotes()
         if Remotes then return Remotes end
         local ok, r = pcall(require, ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -50,13 +66,32 @@ return function(ctx)
         return bottom.Position + Vector3.new(0, lift, 0)
     end
 
-    -- Gets the exact rarity string from the game's Directory
+    -- Safely gets the rarity string by checking Rank -> VisualOdds fallback
     local function getEggRarity(record)
         local dir = getDirectory()
         if dir and dir[record.AssetCategory] then
             local data = dir[record.AssetCategory]
-            -- The game stores it as `.Rarity` (string) in the Directory
-            return data.Rarity or "Common"
+            
+            -- 1. Try the Rank field directly
+            local rank = data.Rank
+            if rank and RANK_TO_STRING[rank] then
+                return RANK_TO_STRING[rank]
+            end
+            
+            -- 2. If no rank, try to estimate from VisualOdds
+            local odds = data.VisualOdds or 1
+            if odds >= 1000000000 then return "LightDark"
+            elseif odds >= 250000000 then return "Titan"
+            elseif odds >= 50000000 then return "Divine"
+            elseif odds >= 10000000 then return "Eternal"
+            elseif odds >= 2000000 then return "Secret"
+            elseif odds >= 500000 then return "Cosmic"
+            elseif odds >= 100000 then return "Mythic"
+            elseif odds >= 20000 then return "Legendary"
+            elseif odds >= 5000 then return "Epic"
+            elseif odds >= 1000 then return "Rare"
+            elseif odds >= 250 then return "Uncommon"
+            else return "Common" end
         end
         return "Common"
     end
@@ -150,8 +185,6 @@ return function(ctx)
 
         -- Single-pass: find nearest or rarest
         local bestR, bestD, bestPos
-        
-        -- For "Rarest", we'll use the VisualOdds value to determine rarity instead of Rank
         local bestOdds = -1
 
         for _, record in ipairs(records) do
@@ -163,7 +196,6 @@ return function(ctx)
                     
                     if validDist then
                         if opts.priority == "Rarest" then
-                            -- Use VisualOdds to find the mathematically rarest
                             local odds = 1
                             local dir = getDirectory()
                             if dir and dir[record.AssetCategory] then
@@ -173,7 +205,6 @@ return function(ctx)
                                 bestR, bestD, bestPos, bestOdds = record, d, pos, odds
                             end
                         else
-                            -- Nearest
                             if (not bestD or d < bestD) then
                                 bestR, bestD, bestPos = record, d, pos
                             end
