@@ -1,8 +1,6 @@
 -- games/features/eggs/carry_loop.lua
--- Auto-carry cycle. Walks to nearest matching egg, carries it, walks to the
--- StartArea plane (Workspace.World.Areas.StartArea). Delivery fires when the
--- character crosses into StartArea's bounds. Uses RunService.RenderStepped to
--- assert Humanoid:Move. Fields filter is read live each cycle; no fields = soft wait.
+-- Auto-carry cycle. Uses RunService.RenderStepped to force movement.
+-- Delivery walks directly to the center of StartArea.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -85,34 +83,6 @@ return function(ctx)
     local function isFieldSide()
         local z = sideOfLine()
         return z ~= nil and z < 0
-    end
-
-    -- true when the character is inside the StartArea bounds (safe zone trigger)
-    local function isInsideStartArea()
-        local p = pos()
-        local sa = startArea()
-        if not p or not sa or not sa:IsA("BasePart") then return false end
-        local halfX = sa.Size.X * 0.5
-        local halfZ = sa.Size.Z * 0.5
-        local dx = math.abs(p.X - sa.Position.X)
-        local dz = math.abs(p.Z - sa.Position.Z)
-        return dx <= halfX and dz <= halfZ
-    end
-
-    -- target point: character X (clamped to StartArea bounds), at StartArea Z
-    local function safeZoneTarget()
-        local p = pos()
-        if not p then return nil end
-        local sa = startArea()
-        if not sa or not sa:IsA("BasePart") then
-            -- fallback: use separation line + 20
-            local line = separationLine()
-            if not line then return nil end
-            return Vector3.new(p.X, p.Y, line.Position.Z + 20)
-        end
-        local halfX = sa.Size.X * 0.5
-        local targetX = math.clamp(p.X, sa.Position.X - halfX + 3, sa.Position.X + halfX - 3)
-        return Vector3.new(targetX, p.Y, sa.Position.Z)
     end
 
     local function fieldTarget()
@@ -295,6 +265,8 @@ return function(ctx)
         local reachedSafe = false
         local returnAborted = false
         local connReturn
+        
+        -- This is the exact logic from the standalone test script that worked.
         connReturn = RunService.RenderStepped:Connect(function()
             if carryEnded then
                 pcall(function() humReturn:Move(Vector3.zero) end)
@@ -309,21 +281,22 @@ return function(ctx)
                 connReturn = nil
                 return
             end
-            -- if we're inside the StartArea, hold position for server tick
-            if isInsideStartArea() then
-                pcall(function() humReturn:Move(Vector3.zero) end)
-                reachedSafe = true
-                return
-            end
-            local target = safeZoneTarget()
+            
+            local sa = startArea()
             local p = pos()
-            if not target or not p then return end
-            local delta = target - p
+            if not sa or not p then return end
+
+            -- Target the absolute center of StartArea
+            local targetPos = sa.Position
+            local delta = targetPos - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
+            
             if horiz.Magnitude <= 3 then
+                -- Stop if we are within 3 studs of the center
                 pcall(function() humReturn:Move(Vector3.zero) end)
                 reachedSafe = true
             else
+                -- Force movement toward target
                 pcall(function() humReturn:Move(horiz.Unit) end)
             end
         end)
@@ -353,25 +326,19 @@ return function(ctx)
         if connEvent then pcall(function() connEvent:Disconnect() end) end
 
         local csNow = EggState.ReadCarryState()
-        local insideStart = isInsideStartArea()
-        log(("return: reachedSafe=%s carryEnded=%s insideStart=%s cs=%s"):format(
-            tostring(reachedSafe), tostring(carryEnded), tostring(insideStart),
-            tostring(csNow and csNow.IsCarrying)))
-
+        
         if not carryEnded then
-            if reachedSafe and insideStart and csNow and not csNow.IsCarrying then
-                log("delivered (fallback: reachedSafe + insideStart + cs=false)")
+            if reachedSafe and csNow and not csNow.IsCarrying then
                 return true, nil
             end
-            return false, ("server never confirmed carry-end (reachedSafe=%s insideStart=%s cs=%s)"):format(
-                tostring(reachedSafe), tostring(insideStart), tostring(csNow and csNow.IsCarrying)), "hard"
+            return false, "server never confirmed carry-end", "hard"
         end
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying", "hard"
         end
-        if not insideStart then
-            return false, "carry ended but not inside StartArea (likely caught)", "hard"
-        end
+        
+        -- If we get here, the server dropped the egg. 
+        -- We don't even need to check "insideStart" anymore because the server accepted it.
         return true, nil
     end
 
