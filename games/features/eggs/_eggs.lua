@@ -4,7 +4,7 @@ return function(lib, window, Manager, loadModule)
     local Finder = loadModule("features/eggs/field_egg_finder.lua")({ lib = lib })
 
     local options = {
-        fields           = {},   -- ordered list of area ids (priority order)
+        fields           = {},
         allowedMutations = {},
     }
 
@@ -24,7 +24,6 @@ return function(lib, window, Manager, loadModule)
             if Manager._suppress then return end
             if on and #options.fields == 0 then
                 lib:Notify({ Title = "Auto Egg", Content = "Select at least one field first.", Duration = 3 })
-                -- bounce the toggle back off
                 if masterToggle then
                     Manager._suppress = true
                     pcall(function() masterToggle:Set(false) end)
@@ -36,7 +35,6 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- label -> finder areaId (aliases for display differences)
     local AREAS = {
         { label = "Forest",             value = "Forest" },
         { label = "Lake",               value = "Lake" },
@@ -58,40 +56,6 @@ return function(lib, window, Manager, loadModule)
         table.insert(labels, entry.label)
     end
 
-    -- ordered selection: track the order fields were picked, drop on deselect
-    local orderedSelections = {}
-    local function rebuildOrdered(newSet)
-        local newOrdered = {}
-        -- keep prior order for anything still selected
-        for _, v in ipairs(orderedSelections) do
-            if newSet[v] then
-                table.insert(newOrdered, v)
-            end
-        end
-        -- append any newly-selected not already in ordered
-        for _, v in ipairs(newSet) do
-            local found = false
-            for _, existing in ipairs(newOrdered) do
-                if existing == v then found = true break end
-            end
-            if not found then
-                table.insert(newOrdered, v)
-            end
-        end
-        orderedSelections = newOrdered
-        -- convert labels -> area ids
-        local mapped = {}
-        for _, lbl in ipairs(orderedSelections) do
-            for _, entry in ipairs(AREAS) do
-                if entry.label == lbl then
-                    table.insert(mapped, entry.value)
-                    break
-                end
-            end
-        end
-        options.fields = mapped
-    end
-
     tab:AddMultiDropdown({
         Title = "Fields (select in priority order)",
         Note = "First = most important, last = least important.",
@@ -99,18 +63,19 @@ return function(lib, window, Manager, loadModule)
         Default = {},
         DependsOn = masterToggle,
         Callback = function(selected)
-            -- selected may arrive as a set or an array — normalize
-            local set = {}
+            local mapped = {}
             if type(selected) == "table" then
-                for k, v in pairs(selected) do
-                    if type(k) == "number" then
-                        set[v] = true
-                    elseif v == true then
-                        set[k] = true
+                for _, label in ipairs(selected) do
+                    for _, entry in ipairs(AREAS) do
+                        if entry.label == label then
+                            table.insert(mapped, entry.value)
+                            break
+                        end
                     end
                 end
             end
-            rebuildOrdered(set)
+            options.fields = mapped
+            warn("[_eggs] fields updated: " .. (#mapped == 0 and "(none)" or table.concat(mapped, ", ")))
         end,
     })
 
@@ -130,21 +95,13 @@ return function(lib, window, Manager, loadModule)
         Default = {},
         DependsOn = masterToggle,
         Callback = function(selected)
-            local list = {}
-            if type(selected) == "table" then
-                for k, v in pairs(selected) do
-                    if type(k) == "number" then table.insert(list, v)
-                    elseif v == true then table.insert(list, k) end
-                end
-            end
-            options.allowedMutations = list
+            options.allowedMutations = type(selected) == "table" and selected or {}
+            warn("[_eggs] mutations updated: " .. (#options.allowedMutations == 0 and "(any)" or table.concat(options.allowedMutations, ", ")))
         end,
     })
 
     tab:AddSection("Status")
     tab:AddLabel("Console shows live [autoegg] log lines.")
-
-    --== manager registration ==--
 
     Manager.Register("auto_get_egg", {
         toggle    = masterToggle,
