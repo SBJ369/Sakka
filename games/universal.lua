@@ -89,6 +89,7 @@ end
 -- add tab paths here, dependency order matters (top loads first)
 local tabs = {
     "features/eggs/_eggs.lua",
+	"features/pets/_pets.lua",
 }
 for _, path in ipairs(tabs) do
 	local mod = loadModule(path)
