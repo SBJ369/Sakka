@@ -4,8 +4,7 @@ return function(lib, window, Manager, loadModule)
     local Finder = loadModule("features/eggs/field_egg_finder.lua")({ lib = lib })
 
     local options = {
-        fieldFilter     = "Any",
-        skipParasite    = false,
+        fieldFilter      = "Any",
         allowedMutations = {},
     }
 
@@ -20,28 +19,50 @@ return function(lib, window, Manager, loadModule)
     local masterToggle = tab:AddToggle({
         Text = "Auto Get Egg",
         Default = false,
-        Note = "Walks to nearest egg, carries it back to pen. No speed or teleport.",
+        Note = "Walks to nearest egg, carries it back to the safe zone. No speed or teleport.",
         Callback = function(on)
             if Manager._suppress then return end
             Manager.Toggle("auto_get_egg", on)
         end,
     })
 
+    -- label -> finder areaId (aliases for display differences)
     local AREAS = {
-        "Any",
-        "Forest", "Lake", "Snow", "Volcano", "Jungle",
-        "Desert", "Prehistoric", "Cosmic", "Cherry Blossom",
-        "Abyss Ocean", "Titan Temple", "Light Dark", "Enchanted Forest",
+        { label = "Any",                value = "Any" },
+        { label = "Forest",             value = "Forest" },
+        { label = "Lake",               value = "Lake" },
+        { label = "Desert",             value = "Desert" },
+        { label = "Jungle",             value = "Jungle" },
+        { label = "Snow",               value = "Snow" },
+        { label = "Volcano",            value = "Volcano" },
+        { label = "Abyss Ocean",        value = "Abyss Ocean" },
+        { label = "Prehistoric",        value = "Prehistoric" },
+        { label = "Cosmic",             value = "Cosmic" },
+        { label = "Cherry Blossom",     value = "Cherry Blossom" },
+        { label = "Titan Temple",       value = "Titan Temple" },
+        { label = "Angels And Demons",  value = "Light Dark" },
+        { label = "Enchanted Forest",   value = "Enchanted Forest" },
     }
+
+    local labels = {}
+    for _, entry in ipairs(AREAS) do
+        table.insert(labels, entry.label)
+    end
 
     tab:AddDropdown({
         Text = "Field Filter",
-        Options = AREAS,
+        Options = labels,
         Default = "Any",
         DependsOn = masterToggle,
         Note = "Only pick eggs from this field. Any = closest everywhere.",
         Callback = function(option)
-            options.fieldFilter = option
+            for _, entry in ipairs(AREAS) do
+                if entry.label == option then
+                    options.fieldFilter = entry.value
+                    return
+                end
+            end
+            options.fieldFilter = "Any"
         end,
     })
 
@@ -54,18 +75,9 @@ return function(lib, window, Manager, loadModule)
         Callback = function(_) end,
     })
 
-    tab:AddToggle({
-        Text = "Skip Parasite Eggs",
-        Default = false,
-        DependsOn = masterToggle,
-        Callback = function(on)
-            options.skipParasite = on
-        end,
-    })
-
     tab:AddMultiDropdown({
         Title = "Only These Mutations",
-        Note = "Leave empty to allow any. Non-mutated eggs are always allowed.",
+        Note = "Leave empty to allow any egg. If set, ONLY eggs with these mutations will be picked up.",
         Options = { "Silver", "Golden" },
         Default = {},
         DependsOn = masterToggle,
