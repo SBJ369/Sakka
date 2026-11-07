@@ -75,6 +75,9 @@ return function(ctx)
         for _, v in ipairs(f) do table.insert(parts, v) end
         local m = options.allowedMutations or {}
         for _, v in ipairs(m) do table.insert(parts, "|m:" .. v) end
+        local r = options.rarities or {}
+        for _, v in ipairs(r) do table.insert(parts, "|r:" .. v) end
+        table.insert(parts, "|p:" .. tostring(options.priority))
         return table.concat(parts, ",")
     end
 
@@ -162,6 +165,10 @@ return function(ctx)
         if options.allowedMutations and #options.allowedMutations > 0 then
             opts.mutations = options.allowedMutations
         end
+        if options.rarities and #options.rarities > 0 then
+            opts.rarities = options.rarities
+        end
+        opts.priority = options.priority or "Nearest"
         return opts
     end
 
@@ -179,7 +186,6 @@ return function(ctx)
         end
 
         -- 2. Walk to the funnel entrance (Z-coordinate of StartArea, keeping current X).
-        -- This prevents hitting the side walls and avoids detouring if already in the field.
         local sa = startArea()
         if not sa then return false, "no StartArea found", "hard" end
         
@@ -187,7 +193,6 @@ return function(ctx)
         local entranceTarget = Vector3.new(p.X, p.Y, sa.Position.Z)
         local distToEntrance = (p - entranceTarget).Magnitude
         
-        -- Only walk to entrance if we are not already within the Z-band of StartArea
         if distToEntrance > 15 then
             local okEntrance = walkTo(entranceTarget, 5, 30, fp)
             if not okEntrance then return false, "walk to funnel entrance timed out", "hard" end
@@ -271,7 +276,6 @@ return function(ctx)
             local p = pos()
             if not sa or not p then return end
 
-            -- For delivery, we must go to the exact center of StartArea
             local targetPos = sa.Position
             local delta = targetPos - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
