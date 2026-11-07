@@ -1,6 +1,7 @@
 -- games/features/eggs/carry_loop.lua
--- Auto-carry cycle. Walks to nearest matching egg, carries it, walks to the
--- safe-zone line (target: line.Z + 15). Uses RunService.RenderStepped to assert
+-- Auto-carry cycle. Walks to nearest matching egg, carries it, walks deep into
+-- the safe zone (line.Z + M.SAFE_OVERSHOOT) to escape monster aggro before the
+-- server tick drops the carry. Uses RunService.RenderStepped to assert
 -- Humanoid:Move. Field filter is read live each cycle; mid-cycle filter change
 -- aborts the current cycle and restarts with the new filter.
 
@@ -45,7 +46,7 @@ return function(ctx)
     M.MAX_FAILS          = 3
     M.STALE_EVENT_WINDOW = 0.2
     M.SOFT_WAIT          = 3
-    M.SAFE_OVERSHOOT     = 15   -- studs past the separation line to stop
+    M.SAFE_OVERSHOOT     = 45   -- studs past the separation line to stop
 
     local running = false
     local thread
@@ -86,15 +87,6 @@ return function(ctx)
     local function isSafeSide()
         local z = sideOfLine()
         return z ~= nil and z >= 0
-    end
-
-    -- delivery target: M.SAFE_OVERSHOOT studs past the separation line
-    -- (into safe zone, out of treadmill z-band, monster has to chase further)
-    local function safeZoneTarget()
-        local p = pos()
-        local line = separationLine()
-        if not p or not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z + M.SAFE_OVERSHOOT)
     end
 
     local function fieldTarget()
@@ -191,10 +183,8 @@ return function(ctx)
         local opts = { maxDist = 600 }
         local fields = options.fields or {}
         if #fields == 1 then
-            -- single field: exact match
             opts.areaId = fields[1]
         elseif #fields > 1 then
-            -- multiple: priority list
             opts.areaPriority = fields
         end
         if options.allowedMutations and #options.allowedMutations > 0 then
@@ -267,7 +257,8 @@ return function(ctx)
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- 6. walk home
+        -- 6. walk home — push deep into safe zone, keep moving until server
+        --    tick drops the carry or we hit the deep target
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return", "hard" end
 
@@ -297,23 +288,27 @@ return function(ctx)
                 connReturn = nil
                 return
             end
-            local safe = safeZoneTarget()
             local p = pos()
-            if not safe or not p then return end
-            local delta = safe - p
+            local line = separationLine()
+            if not p or not line then return end
+
+            -- push toward deep target; if close, hold
+            local deepTarget = Vector3.new(p.X, p.Y, line.Position.Z + M.SAFE_OVERSHOOT)
+            local delta = deepTarget - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
-            if horiz.Magnitude <= 4 then
+            if horiz.Magnitude <= 3 then
                 pcall(function() humReturn:Move(Vector3.zero) end)
                 reachedSafe = true
-                if connReturn then pcall(function() connReturn:Disconnect() end) end
-                connReturn = nil
-                return
+            else
+                pcall(function() humReturn:Move(horiz.Unit) end)
+                if horiz.Magnitude <= 8 then
+                    reachedSafe = true
+                end
             end
-            pcall(function() humReturn:Move(horiz.Unit) end)
         end)
 
         local tStartReturn = os.clock()
-        while not carryEnded and not reachedSafe and not returnAborted
+        while not carryEnded and not returnAborted
               and (os.clock() - tStartReturn) < M.RETURN_TIMEOUT do
             if not running then break end
             task.wait(0.1)
@@ -326,8 +321,8 @@ return function(ctx)
             return false, "filter changed mid-return", "soft"
         end
 
-        -- if we reached target but server hasn't confirmed, wait for tick
-        if reachedSafe and not carryEnded then
+        -- if not yet ended but we've reached safe target, wait for server tick
+        if not carryEnded then
             local tWait = os.clock()
             while not carryEnded and (os.clock() - tWait) < M.DROP_TIMEOUT do
                 if not running then break end
@@ -354,7 +349,10 @@ return function(ctx)
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying", "hard"
         end
-
+        -- require safeSide even when carryEnded=true (catches monster-catch drops)
+        if not safeNow then
+            return false, "carry ended but we're on field side (likely caught)", "hard"
+        end
         return true, nil
     end
 
