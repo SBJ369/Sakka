@@ -115,21 +115,6 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- ==========================================
-    -- SECTION: Pets
-    -- ==========================================
-    tab:AddSection("Pets")
-
-    local equipToggle = tab:AddToggle({
-        Text = "Auto Equip Best Pets",
-        Default = false,
-        Note = "Calls the server remote to equip best pets every 5 seconds.",
-        Callback = function(on)
-            if Manager._suppress then return end
-            Manager.Toggle("auto_equip_best", on)
-        end,
-    })
-
         -- ==========================================
     -- SECTION: Pets
     -- ==========================================
