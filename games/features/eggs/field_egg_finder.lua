@@ -1,8 +1,4 @@
 -- games/features/eggs/field_egg_finder.lua
--- Read-only field egg discovery. Never fires a remote.
--- Records come from Remotes.EggWorld.AskFieldEggSnapshot.
--- All positions are derived from record.BottomCFrame + half of BoundsSize.Y.
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
@@ -42,65 +38,95 @@ return function(ctx)
         return bottom.Position + Vector3.new(0, lift, 0)
     end
 
-    -- opts (all optional):
-    --   areaId       string   -- exact match, e.g. "Forest"
-    --   maxDist      number
-    --   noParasite   boolean
-    --   mutations    {string} -- matches BaseMutation; nil-mutation eggs are skipped
-    --   categories   {string} -- matches AssetCategory
-    --   slotOnly     boolean  -- default true; requires State == "Slot"
+    local function passesFilters(record, opts)
+        if opts.slotOnly ~= false and record.State ~= "Slot" then return false end
+        if opts.areaId and record.AreaId ~= opts.areaId then return false end
+        if opts.areaPriority then
+            local found = false
+            for _, a in ipairs(opts.areaPriority) do
+                if record.AreaId == a then found = true break end
+            end
+            if not found then return false end
+        end
+        if opts.noParasite and record.HasParasite then return false end
+        if opts.mutations then
+            local hit = false
+            for _, m in ipairs(opts.mutations) do
+                if record.BaseMutation == m then hit = true break end
+            end
+            if not hit then return false end
+        end
+        if opts.categories then
+            local hit = false
+            for _, c in ipairs(opts.categories) do
+                if record.AssetCategory == c then hit = true break end
+            end
+            if not hit then return false end
+        end
+        return true
+    end
+
     function M:Nearest(opts)
         opts = opts or {}
-        local slotOnly = opts.slotOnly ~= false
         local records = self:GetRecords()
         if #records == 0 then return nil end
         local me = self:GetMyPosition()
         if not me then return nil end
 
-        local best, bestDist, bestPos
-        for _, record in ipairs(records) do
-            local ok = true
-            if slotOnly and record.State ~= "Slot" then ok = false end
-            if ok and opts.areaId and record.AreaId ~= opts.areaId then ok = false end
-            if ok and opts.noParasite and record.HasParasite then ok = false end
-            if ok and opts.mutations then
-                local hit = false
-                for _, m in ipairs(opts.mutations) do
-                    if record.BaseMutation == m then hit = true break end
-                end
-                if not hit then ok = false end
-            end
-            if ok and opts.categories then
-                local hit = false
-                for _, c in ipairs(opts.categories) do
-                    if record.AssetCategory == c then hit = true break end
-                end
-                if not hit then ok = false end
-            end
+        local function buildResult(record, pos, dist)
+            return {
+                uid         = record.Uid,
+                record      = record,
+                position    = pos,
+                distance    = dist,
+                areaId      = record.AreaId,
+                nestId      = record.NestId,
+                category    = record.AssetCategory,
+                mutation    = record.BaseMutation,
+                hasParasite = record.HasParasite,
+            }
+        end
 
-            if ok then
+        -- if areaPriority is set, iterate priorities in order and return
+        -- the nearest matching egg from the first priority that has any
+        if opts.areaPriority and #opts.areaPriority > 0 then
+            for _, priorityArea in ipairs(opts.areaPriority) do
+                local bestR, bestD, bestPos
+                for _, record in ipairs(records) do
+                    if record.AreaId == priorityArea and passesFilters(record, opts) then
+                        local pos = eggPosition(record)
+                        if pos then
+                            local d = (pos - me).Magnitude
+                            if (not bestD or d < bestD)
+                               and (not opts.maxDist or d <= opts.maxDist) then
+                                bestR, bestD, bestPos = record, d, pos
+                            end
+                        end
+                    end
+                end
+                if bestR then
+                    return buildResult(bestR, bestPos, bestD)
+                end
+            end
+            return nil
+        end
+
+        -- single-pass nearest
+        local bestR, bestD, bestPos
+        for _, record in ipairs(records) do
+            if passesFilters(record, opts) then
                 local pos = eggPosition(record)
                 if pos then
                     local d = (pos - me).Magnitude
-                    if (not bestDist or d < bestDist) and (not opts.maxDist or d <= opts.maxDist) then
-                        best, bestDist, bestPos = record, d, pos
+                    if (not bestD or d < bestD)
+                       and (not opts.maxDist or d <= opts.maxDist) then
+                        bestR, bestD, bestPos = record, d, pos
                     end
                 end
             end
         end
-
-        if not best then return nil end
-        return {
-            uid         = best.Uid,
-            record      = best,
-            position    = bestPos,
-            distance    = bestDist,
-            areaId      = best.AreaId,
-            nestId      = best.NestId,
-            category    = best.AssetCategory,
-            mutation    = best.BaseMutation,   -- may be nil
-            hasParasite = best.HasParasite,
-        }
+        if not bestR then return nil end
+        return buildResult(bestR, bestPos, bestD)
     end
 
     function M:DistanceTo(uid)
