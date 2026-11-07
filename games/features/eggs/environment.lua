@@ -35,7 +35,7 @@ return function(ctx)
         return nil
     end
 
-    -- Get the actual Treadmill Belt, not the Upgrade Board
+    -- Get the actual Treadmill Belt (TreadmillBottom) where you train
     function M:GetMyTreadmill()
         local plot = self:GetMyPlot()
         if not plot or not plot.PlotFolder then return nil end
@@ -44,35 +44,53 @@ return function(ctx)
             return myPlotCache.Treadmill
         end
 
-        local treadmillModel = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
-        if not treadmillModel then return nil end
-
-        -- Find the actual conveyor belt part. Usually named "Treadmill" or "Belt"
-        local beltPart = nil
-        for _, v in ipairs(treadmillModel:GetDescendants()) do
-            if v:IsA("BasePart") and (v.Name:lower():find("belt") or v.Name:lower():find("treadmill") or v.Name == "Treadmill") then
-                beltPart = v
-                break
-            end
-        end
-        
-        -- Fallback to PrimaryPart if belt is not found
-        if not beltPart then
-            beltPart = treadmillModel.PrimaryPart
-        end
-
-        if beltPart then
+        local treadBottom = plot.PlotFolder:FindFirstChild("TreadmillBottom")
+        if treadBottom and treadBottom:IsA("BasePart") then
             myPlotCache = myPlotCache or {}
-            myPlotCache.Treadmill = beltPart.Position
-            return beltPart.Position
+            myPlotCache.Treadmill = treadBottom.Position
+            return treadBottom.Position
         end
         return nil
     end
 
-    -- Get the Plot Upgrade Board location
+    -- Get the Treadmill Upgrade Board (TreadmillUpgrade)
+    function M:GetMyTreadmillUpgrade()
+        local plot = self:GetMyPlot()
+        if not plot or not plot.PlotFolder then return nil end
+
+        if myPlotCache and myPlotCache.TreadmillUpgrade then
+            return myPlotCache.TreadmillUpgrade
+        end
+
+        local upgradeModel = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
+        if not upgradeModel then return nil end
+
+        local basePart = upgradeModel.PrimaryPart
+        if not basePart then
+            for _, v in ipairs(upgradeModel:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    basePart = v
+                    break
+                end
+            end
+        end
+
+        if basePart then
+            myPlotCache = myPlotCache or {}
+            myPlotCache.TreadmillUpgrade = basePart.Position
+            return basePart.Position
+        end
+        return nil
+    end
+
+    -- Get the Plot Upgrade Board (PlotUpgrade)
     function M:GetMyPlotUpgrade()
         local plot = self:GetMyPlot()
         if not plot or not plot.PlotFolder then return nil end
+
+        if myPlotCache and myPlotCache.PlotUpgrade then
+            return myPlotCache.PlotUpgrade
+        end
 
         local upgradeModel = plot.PlotFolder:FindFirstChild("PlotUpgrade")
         if not upgradeModel then return nil end
@@ -86,7 +104,13 @@ return function(ctx)
                 end
             end
         end
-        return basePart and basePart.Position or nil
+
+        if basePart then
+            myPlotCache = myPlotCache or {}
+            myPlotCache.PlotUpgrade = basePart.Position
+            return basePart.Position
+        end
+        return nil
     end
 
     function M:GetStaticPoints() return M.STATIC end
