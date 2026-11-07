@@ -130,6 +130,69 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
+        -- ==========================================
+    -- SECTION: Pets
+    -- ==========================================
+    tab:AddSection("Pets")
+
+    local equipToggle = tab:AddToggle({
+        Text = "Auto Equip Best Pets",
+        Default = false,
+        Note = "Calls the server remote to equip best pets every 5 seconds.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_equip_best", on)
+        end,
+    })
+
+    -- Load Auto Sell
+    local AutoSell = loadModule("features/farming/auto_sell.lua")({ lib = lib })
+
+    tab:AddButton({
+        Text = "Sell All Pets",
+        Callback = function()
+            AutoSell:SellAll()
+        end,
+    })
+
+    local sellWeightInput = tab:AddTextInput({
+        Text = "Max Weight to Sell (kg)",
+        Placeholder = "e.g. 500",
+        Callback = function(_) end,
+    })
+
+    tab:AddButton({
+        Text = "Sell Under Weight",
+        Callback = function()
+            local text = sellWeightInput:Get() or ""
+            local weight = tonumber(text)
+            if weight and weight > 0 then
+                AutoSell:SellUnderWeight(weight)
+            else
+                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid weight.", Duration = 3 })
+            end
+        end,
+    })
+
+    local sellValueInput = tab:AddTextInput({
+        Text = "Max Value to Sell ($/s)",
+        Placeholder = "e.g. 1000",
+        Callback = function(_) end,
+    })
+
+    tab:AddButton({
+        Text = "Sell Under Value",
+        Callback = function()
+            local text = sellValueInput:Get() or ""
+            local value = tonumber(text)
+            if value and value > 0 then
+                AutoSell:SellUnderValue(value)
+            else
+                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid value.", Duration = 3 })
+            end
+        end,
+    })
+
     -- ==========================================
     -- SECTION: Speed (Placeholder for now)
     -- ==========================================
