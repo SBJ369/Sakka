@@ -1,9 +1,9 @@
 -- games/features/eggs/carry_loop.lua
 -- Auto-carry cycle. Walks to nearest matching egg, carries it, walks deep into
--- the safe zone (line.Z + M.SAFE_OVERSHOOT) to escape monster aggro before the
--- server tick drops the carry. Uses RunService.RenderStepped to assert
--- Humanoid:Move. Field filter is read live each cycle; mid-cycle filter change
--- aborts the current cycle and restarts with the new filter.
+-- the safe zone to escape monster aggro before the server tick drops the carry.
+-- Uses RunService.RenderStepped to assert Humanoid:Move.
+-- Fields filter is read live each cycle; if no fields are selected the loop
+-- soft-waits instead of aborting.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -46,7 +46,7 @@ return function(ctx)
     M.MAX_FAILS          = 3
     M.STALE_EVENT_WINDOW = 0.2
     M.SOFT_WAIT          = 3
-    M.SAFE_OVERSHOOT     = 45   -- studs past the separation line to stop
+    M.SAFE_OVERSHOOT     = 20
 
     local running = false
     local thread
@@ -96,7 +96,6 @@ return function(ctx)
         return Vector3.new(p.X, p.Y, line.Position.Z - 10)
     end
 
-    -- capture the filter at cycle start; if user changes it mid-walk, we abort
     local function filterFingerprint()
         local f = options.fields or {}
         local parts = {}
@@ -193,11 +192,14 @@ return function(ctx)
         return opts
     end
 
-    -- returns (ok, reason, kind)
     local function carryOnce()
+        -- soft-wait if no fields are selected
+        if not options.fields or #options.fields == 0 then
+            return false, "no fields selected", "soft"
+        end
+
         local fp = filterFingerprint()
 
-        -- 1. ensure on field side
         if not isFieldSide() then
             local ft = fieldTarget()
             if not ft then return false, "no field target", "hard" end
@@ -210,11 +212,9 @@ return function(ctx)
             end
         end
 
-        -- 2. find nearest matching egg
         local egg = Finder:Nearest(buildFinderOpts())
         if not egg then return false, "no egg matching filters", "soft" end
 
-        -- 3. walk to egg
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
         if why == "aborted" then return false, "filter changed", "soft" end
         if not ok then return false, "walk to egg timed out", "hard" end
@@ -224,13 +224,11 @@ return function(ctx)
             return false, "lost range to egg", "soft"
         end
 
-        -- 4. slot key
         local slotKey
         if AreaEggSlotIdentity.LooksLikeFirstAreaUid(egg.uid) then
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        -- 5. listener BEFORE fire
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -257,8 +255,6 @@ return function(ctx)
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- 6. walk home — push deep into safe zone, keep moving until server
-        --    tick drops the carry or we hit the deep target
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return", "hard" end
 
@@ -291,8 +287,6 @@ return function(ctx)
             local p = pos()
             local line = separationLine()
             if not p or not line then return end
-
-            -- push toward deep target; if close, hold
             local deepTarget = Vector3.new(p.X, p.Y, line.Position.Z + M.SAFE_OVERSHOOT)
             local delta = deepTarget - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
@@ -321,7 +315,6 @@ return function(ctx)
             return false, "filter changed mid-return", "soft"
         end
 
-        -- if not yet ended but we've reached safe target, wait for server tick
         if not carryEnded then
             local tWait = os.clock()
             while not carryEnded and (os.clock() - tWait) < M.DROP_TIMEOUT do
@@ -349,7 +342,6 @@ return function(ctx)
         if csNow and csNow.IsCarrying then
             return false, "server ended carry but client shows carrying", "hard"
         end
-        -- require safeSide even when carryEnded=true (catches monster-catch drops)
         if not safeNow then
             return false, "carry ended but we're on field side (likely caught)", "hard"
         end
@@ -398,10 +390,6 @@ return function(ctx)
         if running then log("already running") return end
         if not loadDeps() then return end
         if not Finder then log("no Finder") return end
-        if not options.fields or #options.fields == 0 then
-            log("no fields selected")
-            return
-        end
         running = true
         thread = task.spawn(loop)
         log("started")
