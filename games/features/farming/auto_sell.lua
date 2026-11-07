@@ -30,19 +30,28 @@ return function(ctx)
         warn("[autosell] " .. tostring(msg))
     end
 
-    -- Helper to get weight and value of a pet
+    -- DEBUG function to see what Decode returns
+    local function dumpPetData(petData)
+        local ok, decoded = pcall(function() return AssetItems.Decode(petData) end)
+        if ok and decoded then
+            print("=== DECODED PET DATA ===")
+            for k, v in pairs(decoded) do
+                print("  ", k, "=", tostring(v))
+            end
+        else
+            warn("[autosell] Decode failed:", decoded)
+        end
+    end
+
     local function getPetStats(petData)
         local ok, decoded = pcall(function()
             return AssetItems.Decode(petData)
         end)
+        if not ok or not decoded then return 0, 0 end
         
-        if not ok or not decoded then
-            return 0, 0
-        end
-
-        -- Extract weight and value/rate based on the decoded object
-        local weight = decoded.Weight or decoded.Mass or 0
-        local value = decoded.Rate or decoded.Income or decoded.MoneyPerSecond or decoded.Value or 0
+        -- We will adjust these exact keys based on the dump output
+        local weight = decoded.Weight or decoded.Mass or decoded.Size or 0
+        local value = decoded.Rate or decoded.Income or decoded.Value or 0
         
         return weight, value
     end
@@ -50,9 +59,7 @@ return function(ctx)
     function M:SellAll()
         if not loadDeps() then return end
         log("Selling all pets...")
-        pcall(function()
-            Remotes.PetSatchel.SellEveryPet:FireServer()
-        end)
+        pcall(function() Remotes.PetSatchel.SellEveryPet:FireServer() end)
     end
 
     function M:SellUnderWeight(maxWeight)
@@ -61,11 +68,14 @@ return function(ctx)
         if not mySave or not mySave.Inventory then return end
 
         local toSell = {}
+        local first = true
         for uid, data in pairs(mySave.Inventory) do
+            if first then
+                dumpPetData(data) -- Prints the data to console!
+                first = false
+            end
+
             local weight = getPetStats(data)
-            -- Debug print to see if the calculation works
-            -- print("Pet:", data.Category, "Weight:", weight)
-            
             if weight > 0 and weight <= maxWeight then
                 table.insert(toSell, uid)
             end
@@ -73,9 +83,7 @@ return function(ctx)
 
         if #toSell > 0 then
             log(string.format("Selling %d pets under %s kg...", #toSell, tostring(maxWeight)))
-            pcall(function()
-                Remotes.PetSatchel.SellSelection:FireServer(toSell)
-            end)
+            pcall(function() Remotes.PetSatchel.SellSelection:FireServer(toSell) end)
         else
             log("No pets found under " .. tostring(maxWeight) .. " kg.")
         end
@@ -87,11 +95,14 @@ return function(ctx)
         if not mySave or not mySave.Inventory then return end
 
         local toSell = {}
+        local first = true
         for uid, data in pairs(mySave.Inventory) do
-            local _, value = getPetStats(data)
-            -- Debug print
-            -- print("Pet:", data.Category, "Value:", value)
+            if first then
+                dumpPetData(data) -- Prints the data to console!
+                first = false
+            end
 
+            local _, value = getPetStats(data)
             if value > 0 and value <= maxValue then
                 table.insert(toSell, uid)
             end
@@ -99,9 +110,7 @@ return function(ctx)
 
         if #toSell > 0 then
             log(string.format("Selling %d pets under $%s/s...", #toSell, tostring(maxValue)))
-            pcall(function()
-                Remotes.PetSatchel.SellSelection:FireServer(toSell)
-            end)
+            pcall(function() Remotes.PetSatchel.SellSelection:FireServer(toSell) end)
         else
             log("No pets found under $" .. tostring(maxValue) .. "/s.")
         end
