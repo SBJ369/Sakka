@@ -99,6 +99,7 @@ return function(ctx)
     function M:WalkToTreadmill() walkTo(Env:GetMyTreadmill(), "My Treadmill") end
     function M:WalkToPlot() walkTo(Env:GetMyPlotCenter(), "My Plot Center") end
     function M:WalkToUpgrade() walkTo(Env:GetMyPlotUpgrade(), "My Plot Upgrade") end
+    function M:WalkToTreadmillUpgrade() walkTo(Env:GetMyTreadmillUpgrade(), "Treadmill Upgrade Board") end
 
     return M
 end
