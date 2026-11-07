@@ -94,7 +94,7 @@ return function(lib, window, Manager, loadModule)
 
     tab:AddMultiDropdown({
         Title = "Only These Mutations",
-        Note = "Leave empty to allow any egg. If set, ONLY eggs with these mutations will be picked up.",
+        Note = "Leave empty to allow any egg.",
         Options = { "Silver", "Golden" },
         Default = {},
         DependsOn = masterToggle,
