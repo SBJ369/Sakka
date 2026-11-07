@@ -133,6 +133,10 @@ return function(lib, window, Manager, loadModule)
     -- Load Auto Sell
     local AutoSell = loadModule("features/farming/auto_sell.lua")({ lib = lib })
 
+    -- Variables to store input values
+    local maxWeight = 0
+    local maxValue = 0
+
     tab:AddButton({
         Text = "Sell All Pets",
         Callback = function()
@@ -140,46 +144,43 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- REORDERED: Button FIRST, then Input Field
     tab:AddButton({
         Text = "Sell Under Weight",
         Callback = function()
-            -- We have to grab the value from the input we create below.
-            -- Since Lua executes top to bottom, we'll use a variable.
-            local weight = tonumber(sellWeightInput:Get() or "")
-            if weight and weight > 0 then
-                AutoSell:SellUnderWeight(weight)
+            if maxWeight > 0 then
+                AutoSell:SellUnderWeight(maxWeight)
             else
-                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid weight.", Duration = 3 })
+                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid weight below.", Duration = 3 })
             end
         end,
     })
 
-    local sellWeightInput = tab:AddTextInput({
+    tab:AddTextInput({
         Text = "Max Weight to Sell (kg)",
         Placeholder = "e.g. 500",
-        Callback = function(_) end,
+        Callback = function(text)
+            maxWeight = tonumber(text) or 0
+        end,
     })
 
-    -- REORDERED: Button FIRST, then Input Field
     tab:AddButton({
         Text = "Sell Under Value",
         Callback = function()
-            local value = tonumber(sellValueInput:Get() or "")
-            if value and value > 0 then
-                AutoSell:SellUnderValue(value)
+            if maxValue > 0 then
+                AutoSell:SellUnderValue(maxValue)
             else
-                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid value.", Duration = 3 })
+                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid value below.", Duration = 3 })
             end
         end,
     })
 
-    local sellValueInput = tab:AddTextInput({
+    tab:AddTextInput({
         Text = "Max Value to Sell ($/s)",
         Placeholder = "e.g. 1000",
-        Callback = function(_) end,
+        Callback = function(text)
+            maxValue = tonumber(text) or 0
+        end,
     })
-
     -- ==========================================
     -- SECTION: Speed (Placeholder for now)
     -- ==========================================
