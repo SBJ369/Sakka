@@ -1,9 +1,8 @@
 -- games/features/eggs/carry_loop.lua
--- Full auto-carry cycle. Uses RunService.RenderStepped to assert Humanoid:Move.
--- Walks to nearest egg, carries it, returns to safe zone (past SeparationLine).
--- Uses raw FieldEggCarry event as authoritative carry start/end signal.
--- Listener connects BEFORE firing AskFieldEggCarry to avoid race.
--- Soft fails (transient) do NOT count toward the MAX_FAILS abort.
+-- Auto-carry cycle. Walks to nearest matching egg, carries it, walks to the
+-- safe-zone line (target: line.Z + 15). Uses RunService.RenderStepped to assert
+-- Humanoid:Move. Field filter is read live each cycle; mid-cycle filter change
+-- aborts the current cycle and restarts with the new filter.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -46,6 +45,7 @@ return function(ctx)
     M.MAX_FAILS          = 3
     M.STALE_EVENT_WINDOW = 0.2
     M.SOFT_WAIT          = 3
+    M.SAFE_OVERSHOOT     = 15   -- studs past the separation line to stop
 
     local running = false
     local thread
@@ -88,12 +88,13 @@ return function(ctx)
         return z ~= nil and z >= 0
     end
 
-    -- delivery target: 5 studs past the separation line into the safe zone
+    -- delivery target: M.SAFE_OVERSHOOT studs past the separation line
+    -- (into safe zone, out of treadmill z-band, monster has to chase further)
     local function safeZoneTarget()
         local p = pos()
         local line = separationLine()
         if not p or not line then return nil end
-        return Vector3.new(p.X, p.Y, line.Position.Z + 5)
+        return Vector3.new(p.X, p.Y, line.Position.Z + M.SAFE_OVERSHOOT)
     end
 
     local function fieldTarget()
@@ -103,20 +104,47 @@ return function(ctx)
         return Vector3.new(p.X, p.Y, line.Position.Z - 10)
     end
 
-    local function walkTo(target, stopDist, timeout)
+    -- capture the filter at cycle start; if user changes it mid-walk, we abort
+    local function filterFingerprint()
+        local f = options.fields or {}
+        local parts = {}
+        for _, v in ipairs(f) do table.insert(parts, v) end
+        local m = options.allowedMutations or {}
+        for _, v in ipairs(m) do table.insert(parts, "|m:" .. v) end
+        return table.concat(parts, ",")
+    end
+
+    local function filterChanged(fp)
+        return filterFingerprint() ~= fp
+    end
+
+    local function walkTo(target, stopDist, timeout, fp)
         stopDist = stopDist or 4
         timeout = timeout or M.WALK_TIMEOUT
         local hum = humanoid()
-        if not hum then return false end
+        if not hum then return false, "no_humanoid" end
 
         local done = false
         local reached = false
+        local aborted = false
         local t0 = os.clock()
 
         local conn
         conn = RunService.RenderStepped:Connect(function()
             if done then return end
-            if not running or os.clock() - t0 > timeout then
+            if not running then
+                pcall(function() hum:Move(Vector3.zero) end)
+                done = true
+                aborted = true
+                return
+            end
+            if fp and filterChanged(fp) then
+                pcall(function() hum:Move(Vector3.zero) end)
+                done = true
+                aborted = true
+                return
+            end
+            if os.clock() - t0 > timeout then
                 pcall(function() hum:Move(Vector3.zero) end)
                 done = true
                 return
@@ -145,11 +173,8 @@ return function(ctx)
         end
         if conn then pcall(function() conn:Disconnect() end) end
         pcall(function() hum:Move(Vector3.zero) end)
+        if aborted then return false, "aborted" end
         return reached
-    end
-
-    local function distanceToUid(uid)
-        return Finder:DistanceTo(uid)
     end
 
     local function waitFor(pred, timeout)
@@ -164,8 +189,13 @@ return function(ctx)
 
     local function buildFinderOpts()
         local opts = { maxDist = 600 }
-        if options.fieldFilter and options.fieldFilter ~= "Any" then
-            opts.areaId = options.fieldFilter
+        local fields = options.fields or {}
+        if #fields == 1 then
+            -- single field: exact match
+            opts.areaId = fields[1]
+        elseif #fields > 1 then
+            -- multiple: priority list
+            opts.areaPriority = fields
         end
         if options.allowedMutations and #options.allowedMutations > 0 then
             opts.mutations = options.allowedMutations
@@ -173,40 +203,44 @@ return function(ctx)
         return opts
     end
 
-    -- returns (ok, reason, kind) where kind is "soft" or "hard" or nil on success
+    -- returns (ok, reason, kind)
     local function carryOnce()
-        -- 1. ensure we're on field side
+        local fp = filterFingerprint()
+
+        -- 1. ensure on field side
         if not isFieldSide() then
             local ft = fieldTarget()
             if not ft then return false, "no field target", "hard" end
-            if not walkTo(ft, 5, 20) then return false, "walk to field timed out", "hard" end
+            local ok, why = walkTo(ft, 5, 20, fp)
+            if why == "aborted" then return false, "filter changed", "soft" end
+            if not ok then return false, "walk to field timed out", "hard" end
             if not isFieldSide() then
                 local p, l = pos(), separationLine()
                 return false, ("not in field (z=%.1f line=%.1f)"):format(p.Z, l.Position.Z), "hard"
             end
         end
 
-        -- 2. find nearest egg (respecting filters)
+        -- 2. find nearest matching egg
         local egg = Finder:Nearest(buildFinderOpts())
         if not egg then return false, "no egg matching filters", "soft" end
 
         -- 3. walk to egg
-        if not walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT) then
-            return false, "walk to egg timed out", "hard"
-        end
+        local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
+        if why == "aborted" then return false, "filter changed", "soft" end
+        if not ok then return false, "walk to egg timed out", "hard" end
 
-        local dist = distanceToUid(egg.uid)
+        local dist = Finder:DistanceTo(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
             return false, "lost range to egg", "soft"
         end
 
-        -- 4. compute slot key
+        -- 4. slot key
         local slotKey
         if AreaEggSlotIdentity.LooksLikeFirstAreaUid(egg.uid) then
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        -- 5. connect listener BEFORE firing
+        -- 5. listener BEFORE fire
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -220,7 +254,6 @@ return function(ctx)
         })
         if not fired then
             if connStart then pcall(function() connStart:Disconnect() end) end
-            -- transient rejections are soft
             local e = tostring(err or "")
             if e:find("Already carrying") or e:find("First area egg unavailable") then
                 return false, "carry rejected: " .. e, "soft"
@@ -248,10 +281,18 @@ return function(ctx)
         end)
 
         local reachedSafe = false
+        local returnAborted = false
         local connReturn
         connReturn = RunService.RenderStepped:Connect(function()
             if carryEnded then
                 pcall(function() humReturn:Move(Vector3.zero) end)
+                if connReturn then pcall(function() connReturn:Disconnect() end) end
+                connReturn = nil
+                return
+            end
+            if not running or filterChanged(fp) then
+                pcall(function() humReturn:Move(Vector3.zero) end)
+                returnAborted = true
                 if connReturn then pcall(function() connReturn:Disconnect() end) end
                 connReturn = nil
                 return
@@ -272,13 +313,20 @@ return function(ctx)
         end)
 
         local tStartReturn = os.clock()
-        while not carryEnded and not reachedSafe and (os.clock() - tStartReturn) < M.RETURN_TIMEOUT do
+        while not carryEnded and not reachedSafe and not returnAborted
+              and (os.clock() - tStartReturn) < M.RETURN_TIMEOUT do
             if not running then break end
             task.wait(0.1)
         end
         if connReturn then pcall(function() connReturn:Disconnect() end) end
         if humReturn then pcall(function() humReturn:Move(Vector3.zero) end) end
 
+        if returnAborted then
+            if connEvent then pcall(function() connEvent:Disconnect() end) end
+            return false, "filter changed mid-return", "soft"
+        end
+
+        -- if we reached target but server hasn't confirmed, wait for tick
         if reachedSafe and not carryEnded then
             local tWait = os.clock()
             while not carryEnded and (os.clock() - tWait) < M.DROP_TIMEOUT do
@@ -296,7 +344,6 @@ return function(ctx)
             tostring(csNow and csNow.IsCarrying)))
 
         if not carryEnded then
-            -- fallback: reached safe target, past line, client shows not carrying
             if reachedSafe and safeNow and csNow and not csNow.IsCarrying then
                 log("delivered (fallback: reachedSafe + safeSide + cs=false)")
                 return true, nil
@@ -328,7 +375,6 @@ return function(ctx)
                 lastSoftReason = nil
                 task.wait(0.8)
             elseif kind == "soft" then
-                -- silent wait: only log when the reason changes
                 if reason ~= lastSoftReason then
                     log("waiting: " .. tostring(reason))
                     lastSoftReason = reason
@@ -354,6 +400,10 @@ return function(ctx)
         if running then log("already running") return end
         if not loadDeps() then return end
         if not Finder then log("no Finder") return end
+        if not options.fields or #options.fields == 0 then
+            log("no fields selected")
+            return
+        end
         running = true
         thread = task.spawn(loop)
         log("started")
