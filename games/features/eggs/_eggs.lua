@@ -21,7 +21,13 @@ return function(lib, window, Manager, loadModule)
         Default = false,
         Note = "Select at least one field below, then toggle this on.",
         Callback = function(on)
-            if Manager._suppress then return end
+            warn("[_eggs] master cb on=" .. tostring(on)
+                .. " suppress=" .. tostring(Manager._suppress)
+                .. " fields=" .. #(options.fields or {}))
+            if Manager._suppress then
+                warn("[_eggs] master cb bailing (suppressed)")
+                return
+            end
             if on and #options.fields == 0 then
                 lib:Notify({ Title = "Auto Egg", Content = "Select at least one field first.", Duration = 3 })
                 if masterToggle then
@@ -105,7 +111,15 @@ return function(lib, window, Manager, loadModule)
 
     Manager.Register("auto_get_egg", {
         toggle    = masterToggle,
-        onEnable  = function() Carry:Start() end,
-        onDisable = function() Carry:Stop() end,
+        onEnable  = function()
+            warn("[_eggs] onEnable fired, calling Carry:Start()")
+            Carry:Start()
+            warn("[_eggs] Carry:Start() returned")
+        end,
+        onDisable = function()
+            warn("[_eggs] onDisable fired, calling Carry:Stop()")
+            Carry:Stop()
+            warn("[_eggs] Carry:Stop() returned")
+        end,
     })
 end
