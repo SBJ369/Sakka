@@ -70,13 +70,26 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    tab:AddDropdown({
-        Text = "Egg Priority",
-        Options = { "Nearest" },
-        Default = "Nearest",
+    tab:AddMultiDropdown({
+        Title = "Rarities",
+        Note = "Select a rarity to only pick eggs of this rarity or higher.",
+        Options = { 
+            "Common", 
+            "Uncommon", 
+            "Rare", 
+            "Epic", 
+            "Legendary", 
+            "Mythic", 
+            "Cosmic", 
+            "Secret", 
+            "Eternal", 
+            "Divine" 
+        },
+        Default = {},
         DependsOn = masterToggle,
-        Note = "Rarest / Highest Value coming later.",
-        Callback = function(_) end,
+        Callback = function(selected)
+            options.rarities = type(selected) == "table" and selected or {}
+        end,
     })
 
     tab:AddMultiDropdown({
