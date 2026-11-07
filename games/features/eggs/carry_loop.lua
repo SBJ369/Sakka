@@ -1,8 +1,8 @@
 -- games/features/eggs/carry_loop.lua
 -- Auto-carry cycle. 
--- 1. Walks to the center of StartArea (the funnel entrance).
+-- 1. Walks to the Z-coordinate of StartArea (keeping current X) to funnel through the entrance.
 -- 2. Walks to the targeted egg in the field.
--- 3. Carries it back to StartArea.
+-- 3. Carries it back to StartArea center.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -178,15 +178,17 @@ return function(ctx)
             return false, "no egg matching filters (waiting for respawn)", "soft" 
         end
 
-        -- 2. Walk to the funnel entrance (center of StartArea) before going to the field.
-        -- This prevents hitting the side walls if the character spawns far left/right.
+        -- 2. Walk to the funnel entrance (Z-coordinate of StartArea, keeping current X).
+        -- This prevents hitting the side walls and avoids detouring if already in the field.
         local sa = startArea()
         if not sa then return false, "no StartArea found", "hard" end
         
-        local entranceTarget = Vector3.new(sa.Position.X, pos().Y, sa.Position.Z)
-        -- Only walk to entrance if we are not already in the field
-        local distToEntrance = (pos() - entranceTarget).Magnitude
-        if distToEntrance > 50 then
+        local p = pos()
+        local entranceTarget = Vector3.new(p.X, p.Y, sa.Position.Z)
+        local distToEntrance = (p - entranceTarget).Magnitude
+        
+        -- Only walk to entrance if we are not already within the Z-band of StartArea
+        if distToEntrance > 15 then
             local okEntrance = walkTo(entranceTarget, 5, 30, fp)
             if not okEntrance then return false, "walk to funnel entrance timed out", "hard" end
         end
@@ -233,7 +235,7 @@ return function(ctx)
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- 5. Walk to the StartArea to deliver
+        -- 5. Walk to the StartArea to deliver (Target the exact center of StartArea)
         local humReturn = humanoid()
         if not humReturn then return false, "no humanoid for return", "hard" end
 
@@ -269,6 +271,7 @@ return function(ctx)
             local p = pos()
             if not sa or not p then return end
 
+            -- For delivery, we must go to the exact center of StartArea
             local targetPos = sa.Position
             local delta = targetPos - p
             local horiz = Vector3.new(delta.X, 0, delta.Z)
