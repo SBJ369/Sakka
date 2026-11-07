@@ -1,6 +1,8 @@
 -- games/features/eggs/carry_loop.lua
--- Auto-carry cycle. Queries eggs from the snapshot first, then walks to the target.
--- No more blind "walk into field" step. If no eggs match, it waits in the safe zone.
+-- Auto-carry cycle. 
+-- 1. Walks to the center of StartArea (the funnel entrance).
+-- 2. Walks to the targeted egg in the field.
+-- 3. Carries it back to StartArea.
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -35,7 +37,7 @@ return function(ctx)
     end
 
     M.CARRY_RANGE        = 10
-    M.WALK_TIMEOUT       = 120  -- Increased to allow walking across the map
+    M.WALK_TIMEOUT       = 120
     M.CARRY_FIRE_TIMEOUT = 5
     M.RETURN_TIMEOUT     = 45
     M.DROP_TIMEOUT       = 8
@@ -150,7 +152,7 @@ return function(ctx)
     end
 
     local function buildFinderOpts()
-        local opts = { maxDist = 6000 } -- Increased maxDist to find eggs across the whole map
+        local opts = { maxDist = 6000 }
         local fields = options.fields or {}
         if #fields == 1 then
             opts.areaId = fields[1]
@@ -170,21 +172,30 @@ return function(ctx)
 
         local fp = filterFingerprint()
 
-        -- 1. Query the server for eggs based on the selected filters.
-        -- This works from anywhere on the map, including the safe zone.
+        -- 1. Find an egg first. If none exist, wait in the safe zone.
         local egg = Finder:Nearest(buildFinderOpts())
-        
-        -- If no eggs match the filter, wait for them to respawn.
         if not egg then 
             return false, "no egg matching filters (waiting for respawn)", "soft" 
         end
 
-        -- 2. Walk directly to the egg. The path naturally takes us out of the safe zone.
+        -- 2. Walk to the funnel entrance (center of StartArea) before going to the field.
+        -- This prevents hitting the side walls if the character spawns far left/right.
+        local sa = startArea()
+        if not sa then return false, "no StartArea found", "hard" end
+        
+        local entranceTarget = Vector3.new(sa.Position.X, pos().Y, sa.Position.Z)
+        -- Only walk to entrance if we are not already in the field
+        local distToEntrance = (pos() - entranceTarget).Magnitude
+        if distToEntrance > 50 then
+            local okEntrance = walkTo(entranceTarget, 5, 30, fp)
+            if not okEntrance then return false, "walk to funnel entrance timed out", "hard" end
+        end
+
+        -- 3. Walk to the actual egg in the field
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
         if why == "aborted" then return false, "filter changed", "soft" end
         if not ok then return false, "walk to egg timed out", "hard" end
 
-        -- 3. Verify range before firing remote
         local dist = Finder:DistanceTo(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
             return false, "lost range to egg", "soft"
