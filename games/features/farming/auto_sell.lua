@@ -7,7 +7,7 @@ return function(ctx)
     local lib = ctx and ctx.lib
     local M = {}
 
-    local Remotes, Save, AssetItems
+    local Remotes, Save, AssetItems, AssetEarnings, Assets
     local LocalPlayer = Players.LocalPlayer
 
     local function loadDeps()
@@ -16,6 +16,8 @@ return function(ctx)
             Remotes = require(ReplicatedStorage.Shared.Remotes)
             Save = require(ReplicatedStorage.Shared.Save)
             AssetItems = require(ReplicatedStorage.Shared.Util.AssetItems)
+            AssetEarnings = require(ReplicatedStorage.Shared.Util.AssetEarnings)
+            Assets = require(ReplicatedStorage.Data.Assets)
         end)
         if not ok then
             if lib then lib:Notify({ Title = "Auto Sell", Content = "Failed to load modules.", Duration = 3 }) end
@@ -30,28 +32,29 @@ return function(ctx)
         warn("[autosell] " .. tostring(msg))
     end
 
-    -- DEBUG function to see what Decode returns
-    local function dumpPetData(petData)
-        local ok, decoded = pcall(function() return AssetItems.Decode(petData) end)
-        if ok and decoded then
-            print("=== DECODED PET DATA ===")
-            for k, v in pairs(decoded) do
-                print("  ", k, "=", tostring(v))
-            end
-        else
-            warn("[autosell] Decode failed:", decoded)
-        end
-    end
-
-    local function getPetStats(petData)
+    -- Correct way to calculate Weight and Value using the game's own functions
+    local function getPetStats(petData, saveData)
         local ok, decoded = pcall(function()
             return AssetItems.Decode(petData)
         end)
         if not ok or not decoded then return 0, 0 end
         
-        -- We will adjust these exact keys based on the dump output
-        local weight = decoded.Weight or decoded.Mass or decoded.Size or 0
-        local value = decoded.Rate or decoded.Income or decoded.Value or 0
+        -- 1. Calculate Rate/Value per second
+        local value = 0
+        pcall(function()
+            value = AssetEarnings.LiveRatePerSecond(decoded, saveData.Gamepasses, saveData.Products, LocalPlayer)
+        end)
+
+        -- 2. Calculate Weight based on the scale and base asset weight
+        local weight = 0
+        pcall(function()
+            local assetData = Assets.Directory[decoded.Category]
+            if assetData then
+                local baseWeight = assetData.ModelWeight or 1
+                -- Assuming weight scales with the model scale (e.g. 1.5x scale = 1.5x weight)
+                weight = baseWeight * (decoded.Scale or 1)
+            end
+        end)
         
         return weight, value
     end
@@ -68,14 +71,8 @@ return function(ctx)
         if not mySave or not mySave.Inventory then return end
 
         local toSell = {}
-        local first = true
         for uid, data in pairs(mySave.Inventory) do
-            if first then
-                dumpPetData(data) -- Prints the data to console!
-                first = false
-            end
-
-            local weight = getPetStats(data)
+            local weight = getPetStats(data, mySave)
             if weight > 0 and weight <= maxWeight then
                 table.insert(toSell, uid)
             end
@@ -95,14 +92,8 @@ return function(ctx)
         if not mySave or not mySave.Inventory then return end
 
         local toSell = {}
-        local first = true
         for uid, data in pairs(mySave.Inventory) do
-            if first then
-                dumpPetData(data) -- Prints the data to console!
-                first = false
-            end
-
-            local _, value = getPetStats(data)
+            local _, value = getPetStats(data, mySave)
             if value > 0 and value <= maxValue then
                 table.insert(toSell, uid)
             end
