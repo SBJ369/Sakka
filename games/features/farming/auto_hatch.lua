@@ -19,6 +19,7 @@ return function(ctx)
         end)
         if not ok then
             if lib then lib:Notify({ Title = "Auto Hatch", Content = "Failed to load modules.", Duration = 3 }) end
+            warn("[autohatch] Failed to load dependencies:", r)
         end
         return ok
     end
@@ -32,43 +33,52 @@ return function(ctx)
 
     local function loop()
         if not loadDeps() then return end
+        print("[autohatch] Loop started.")
 
         while running do
-            -- 1. Get all owned eggs
-            local ownedEggs = EggState.ReadOwnedEggs()
+            local owners = EggState.ReadOwnedEggs()
+            local hatchedAny = false
             
-            if ownedEggs and #ownedEggs > 0 then
-                for _, record in ipairs(ownedEggs) do
-                    if not running then break end
-                    
-                    -- 2. Check if the egg is placed and grown enough to hatch
-                    if record.Placement and EggState.IsReadyToHatch(record.Uid) then
-                        log("Hatching egg: " .. tostring(record.Uid))
-                        
-                        -- 3. Fire the Hatch remote
-                        local ok, success, err = pcall(function()
-                            return Remotes.EggWorld.AskHatch:InvokeServer(record.Uid)
-                        end)
-                        
-                        if ok and success then
-                            task.wait(0.5) -- Wait for the hatch animation
+            if owners and #owners > 0 then
+                for _, owner in ipairs(owners) do
+                    if owner.OwnerUserId == LocalPlayer.UserId then
+                        for uid, record in pairs(owner.Records) do
+                            if not running then break end
                             
-                            -- 4. Fire the FinishHatch remote to claim the pet
-                            pcall(function()
-                                Remotes.EggWorld.AskFinishHatch:InvokeServer(record.Uid)
-                            end)
-                            
-                            task.wait(1) -- Wait before processing the next egg
-                        else
-                            warn("[autohatch] Failed to hatch " .. tostring(record.Uid) .. ": " .. tostring(err))
+                            if record.Placement and EggState.IsReadyToHatch(uid) then
+                                print("[autohatch] Found ready egg: " .. tostring(uid))
+                                log("Hatching egg: " .. tostring(uid))
+                                
+                                local ok, success, err = pcall(function()
+                                    return Remotes.EggWorld.AskHatch:InvokeServer(uid)
+                                end)
+                                
+                                if ok and success then
+                                    task.wait(1.0) -- Wait for server to register the hatch state
+                                    
+                                    local ok2, success2, err2 = pcall(function()
+                                        return Remotes.EggWorld.AskFinishHatch:InvokeServer(uid)
+                                    end)
+                                    
+                                    if ok2 and success2 then
+                                        print("[autohatch] Successfully hatched " .. tostring(uid))
+                                        hatchedAny = true
+                                    else
+                                        print("[autohatch] FinishHatch failed:", err2)
+                                    end
+                                else
+                                    print("[autohatch] AskHatch failed:", err)
+                                end
+                            end
                         end
                     end
                 end
             end
             
-            -- Scan every 2 seconds
-            task.wait(2)
+            -- If we hatched something, scan immediately. Otherwise wait 2 seconds.
+            task.wait(hatchedAny and 0.5 or 2)
         end
+        print("[autohatch] Loop stopped.")
     end
 
     function M:Start()
