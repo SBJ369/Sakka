@@ -7,14 +7,18 @@ return function(lib, window, Manager, loadModule)
     
     -- Load feature modules
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
-
+    local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
+    
+    -- We pass the options table into AutoPlace so it can check the lock
     local options = {
         fields           = {},
         allowedMutations = {},
         rarities         = {},
         priority         = "Nearest",
-        isBusy           = false, -- Used for Hierarchy Lock
+        isBusy           = false, -- Hierarchy lock for Auto Get Egg
     }
+
+    local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
 
     local Carry = loadModule("features/farming/carry_loop.lua")({
         lib = lib,
@@ -22,13 +26,7 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    local AutoPlace = loadModule("features/farming/auto_place.lua")({ 
-        lib = lib, 
-        Env = Env, 
-        options = options 
-    })
-
-    -- Background Treadmill Escape (Checks every 1s)
+    -- Background Treadmill Escape (Runs silently)
     task.spawn(function()
         while true do
             task.wait(1)
@@ -38,14 +36,14 @@ return function(lib, window, Manager, loadModule)
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             
             if hrp and hum and not trainToggleOn then
-                -- Check if we are standing on a treadmill part
+                -- Raycast downwards to detect if we are standing on a treadmill
                 local rayParams = RaycastParams.new()
                 rayParams.FilterDescendantsInstances = { char }
                 rayParams.FilterType = Enum.RaycastFilterType.Exclude
                 local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
                 
                 if result and result.Instance and (result.Instance.Name:lower():find("tread") or result.Instance.Name:lower():find("belt")) then
-                    -- We are on a treadmill, but auto train is off. Jump!
+                    -- Jump to escape!
                     hum.Jump = true
                 end
             end
@@ -147,6 +145,16 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
+    local placeToggle = tab:AddToggle({
+        Text = "Auto Place Eggs",
+        Default = false,
+        Note = "Automatically walks to your plot and places eggs when idle.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_place_eggs", on)
+        end,
+    })
+    
     local hatchToggle = tab:AddToggle({
         Text = "Auto Hatch Eggs",
         Default = false,
@@ -154,16 +162,6 @@ return function(lib, window, Manager, loadModule)
         Callback = function(on)
             if Manager._suppress then return end
             Manager.Toggle("auto_hatch", on)
-        end,
-    })
-
-    local placeToggle = tab:AddToggle({
-        Text = "Auto Place Eggs",
-        Default = false,
-        Note = "Automatically walks to your plot and places unplaced eggs when idle.",
-        Callback = function(on)
-            if Manager._suppress then return end
-            Manager.Toggle("auto_place_eggs", on)
         end,
     })
 
@@ -222,10 +220,10 @@ return function(lib, window, Manager, loadModule)
         onDisable = function() Carry:Stop() end,
     })
 
-    Manager.Register("auto_hatch", {
-        toggle    = hatchToggle,
-        onEnable  = function() loadModule("features/farming/auto_hatch.lua")({ lib = lib }):Start() end,
-        onDisable = function() loadModule("features/farming/auto_hatch.lua")({ lib = lib }):Stop() end,
+    Manager.Register("auto_equip_best", {
+        toggle    = equipToggle,
+        onEnable  = function() AutoEquip:Start() end,
+        onDisable = function() AutoEquip:Stop() end,
     })
 
     Manager.Register("auto_place_eggs", {
@@ -234,10 +232,10 @@ return function(lib, window, Manager, loadModule)
         onDisable = function() AutoPlace:Stop() end,
     })
 
-    Manager.Register("auto_equip_best", {
-        toggle    = equipToggle,
-        onEnable  = function() AutoEquip:Start() end,
-        onDisable = function() AutoEquip:Stop() end,
+    Manager.Register("auto_hatch", {
+        toggle    = hatchToggle,
+        onEnable  = function() AutoHatch:Start() end,
+        onDisable = function() AutoHatch:Stop() end,
     })
 
     Manager.Register("auto_train", {
