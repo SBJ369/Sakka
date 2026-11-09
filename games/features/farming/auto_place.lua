@@ -2,10 +2,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
 
 return function(ctx)
     local lib = ctx and ctx.lib
     local Env = ctx and ctx.Env
+    local options = ctx and ctx.options -- Passed from _farming
     local LocalPlayer = Players.LocalPlayer
     local M = {}
 
@@ -47,7 +49,12 @@ return function(ctx)
         return p and p.Position
     end
 
-    -- Smooth walking function
+    local function startArea()
+        local world = Workspace:FindFirstChild("World")
+        local areas = world and world:FindFirstChild("Areas")
+        return areas and areas:FindFirstChild("StartArea")
+    end
+
     local function walkTo(targetPos, distThreshold)
         local hum = humanoid()
         if not hum or not targetPos then return false end
@@ -69,7 +76,6 @@ return function(ctx)
                 return
             end
 
-            -- Decelerate when close
             if dist < 15 then
                 hum:Move(horiz.Unit * (dist / 15))
             else
@@ -77,7 +83,6 @@ return function(ctx)
             end
         end)
 
-        -- Wait up to 30 seconds to arrive
         local t0 = os.clock()
         while running and not reached and (os.clock() - t0) < 30 do
             task.wait(0.1)
@@ -92,13 +97,21 @@ return function(ctx)
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
 
+        local idleTimer = 0
+
         while running do
+            -- 1. Hierarchy Check: If Auto Egg is busy, wait
+            if options and options.isBusy then
+                idleTimer = 0
+                task.wait(1)
+                continue
+            end
+
             local plot = PlotState.ResolvePlot()
             if plot then
                 local mySave = Save.Await(LocalPlayer)
                 local owners = EggState.ReadOwnedEggs()
                 
-                -- 1. Count unplaced eggs and current capacity
                 local unplaced = {}
                 local placedCount = 0
                 
@@ -118,48 +131,55 @@ return function(ctx)
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - placedCount
 
-                -- 2. If we have eggs to place and room for them, walk to plot
+                -- 2. Check if we need to act
                 if #unplaced > 0 and spaceLeft > 0 then
-                    log("Walking to plot to place eggs...")
-                    local centerPos = plot.CenterPoint.Position
+                    idleTimer = idleTimer + 1
                     
-                    if walkTo(centerPos, 10) then
-                        -- We are at the plot, start placing
-                        for _, item in ipairs(unplaced) do
-                            if not running or spaceLeft <= 0 then break end
+                    -- Hierarchy Rule: Wait 4 seconds of idle time before stepping in
+                    if idleTimer >= 4 then
+                        options.isBusy = true -- Lock out Auto Egg while we place
+                        log("Taking over to place eggs...")
 
-                            -- Generate a grid position
-                            local index = placedCount
-                            local row = math.floor(index / 3)
-                            local col = index % 3
-                            
-                            local offsetX = (col - 1) * 3
-                            local offsetZ = (row - 2) * 3
-                            
-                            local worldPos = plot.CenterPoint.Position + Vector3.new(offsetX, 2, offsetZ)
-                            local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(CFrame.new(worldPos))
-
-                            local ok, success, err = pcall(function()
-                                return Remotes.EggWorld.AskPlaceEgg:InvokeServer({
-                                    Uid = item.uid,
-                                    LocalCFrame = localCFrame
-                                })
-                            end)
-                            
-                            if ok and success then
-                                placedCount = placedCount + 1
-                                spaceLeft = spaceLeft - 1
-                                task.wait(0.5) -- Wait for server to sync
-                            else
-                                print("[autoplace] Failed to place:", err)
+                        -- 3. Pathing: Walk to safe zone first to avoid walls/treadmills
+                        local sa = startArea()
+                        if sa then
+                            local inSafeZone = pos().Z > sa.Position.Z
+                            if not inSafeZone then
+                                log("Walking to safe zone first...")
+                                walkTo(Vector3.new(pos().X, pos().Y, sa.Position.Z + 10), 5)
                             end
                         end
-                    else
-                        print("[autoplace] Failed to reach plot.")
+
+                        -- 4. Walk to plot
+                        local centerPos = plot.CenterPoint.Position
+                        log("Walking to plot...")
+                        if walkTo(centerPos, 10) then
+                            -- 5. Place them
+                            for _, item in ipairs(unplaced) do
+                                if not running or spaceLeft <= 0 then break end
+                                local index = placedCount
+                                local row = math.floor(index / 3)
+                                local col = index % 3
+                                local worldPos = plot.CenterPoint.Position + Vector3.new((col - 1) * 3, 2, (row - 2) * 3)
+                                local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(CFrame.new(worldPos))
+
+                                pcall(function()
+                                    Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
+                                end)
+                                placedCount = placedCount + 1
+                                spaceLeft = spaceLeft - 1
+                                task.wait(0.5)
+                            end
+                        end
+
+                        idleTimer = 0
+                        options.isBusy = false -- Release lock
                     end
+                else
+                    idleTimer = 0
                 end
             end
-            task.wait(2) -- Scan every 2 seconds
+            task.wait(1)
         end
     end
 
