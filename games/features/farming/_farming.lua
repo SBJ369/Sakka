@@ -7,14 +7,13 @@ return function(lib, window, Manager, loadModule)
     
     -- Load feature modules
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
-    local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
-    local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env })
 
     local options = {
         fields           = {},
         allowedMutations = {},
         rarities         = {},
         priority         = "Nearest",
+        isBusy           = false, -- Used for Hierarchy Lock
     }
 
     local Carry = loadModule("features/farming/carry_loop.lua")({
@@ -22,6 +21,36 @@ return function(lib, window, Manager, loadModule)
         Finder = Finder,
         options = options,
     })
+
+    local AutoPlace = loadModule("features/farming/auto_place.lua")({ 
+        lib = lib, 
+        Env = Env, 
+        options = options 
+    })
+
+    -- Background Treadmill Escape (Checks every 1s)
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            local trainToggleOn = Manager.features["auto_train"] and Manager.features["auto_train"].enabled
+            local char = game.Players.LocalPlayer.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            
+            if hrp and hum and not trainToggleOn then
+                -- Check if we are standing on a treadmill part
+                local rayParams = RaycastParams.new()
+                rayParams.FilterDescendantsInstances = { char }
+                rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+                
+                if result and result.Instance and (result.Instance.Name:lower():find("tread") or result.Instance.Name:lower():find("belt")) then
+                    -- We are on a treadmill, but auto train is off. Jump!
+                    hum.Jump = true
+                end
+            end
+        end
+    end)
 
     -- ==========================================
     -- SECTION: Auto Egg
@@ -118,16 +147,6 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    local placeToggle = tab:AddToggle({
-        Text = "Auto Place Eggs",
-        Default = false,
-        Note = "Automatically places unplaced eggs in your plot when you have space.",
-        Callback = function(on)
-            if Manager._suppress then return end
-            Manager.Toggle("auto_place_eggs", on)
-        end,
-    })
-    
     local hatchToggle = tab:AddToggle({
         Text = "Auto Hatch Eggs",
         Default = false,
@@ -138,7 +157,17 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-       -- ==========================================
+    local placeToggle = tab:AddToggle({
+        Text = "Auto Place Eggs",
+        Default = false,
+        Note = "Automatically walks to your plot and places unplaced eggs when idle.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_place_eggs", on)
+        end,
+    })
+
+    -- ==========================================
     -- SECTION: Pets
     -- ==========================================
     tab:AddSection("Pets")
@@ -166,7 +195,6 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    
     -- ==========================================
     -- SECTION: Speed
     -- ==========================================
@@ -184,13 +212,6 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- Register with Manager at the bottom
-    Manager.Register("auto_train", {
-        toggle    = trainToggle,
-        onEnable  = function() AutoTrain:Start() end,
-        onDisable = function() AutoTrain:Stop() end,
-    })
-
     -- ==========================================
     -- MANAGER REGISTRATION
     -- ==========================================
@@ -201,22 +222,27 @@ return function(lib, window, Manager, loadModule)
         onDisable = function() Carry:Stop() end,
     })
 
+    Manager.Register("auto_hatch", {
+        toggle    = hatchToggle,
+        onEnable  = function() loadModule("features/farming/auto_hatch.lua")({ lib = lib }):Start() end,
+        onDisable = function() loadModule("features/farming/auto_hatch.lua")({ lib = lib }):Stop() end,
+    })
+
+    Manager.Register("auto_place_eggs", {
+        toggle    = placeToggle,
+        onEnable  = function() AutoPlace:Start() end,
+        onDisable = function() AutoPlace:Stop() end,
+    })
+
     Manager.Register("auto_equip_best", {
         toggle    = equipToggle,
         onEnable  = function() AutoEquip:Start() end,
         onDisable = function() AutoEquip:Stop() end,
     })
 
-        Manager.Register("auto_place_eggs", {
-        toggle    = placeToggle,
-        onEnable  = function() AutoPlace:Start() end,
-        onDisable = function() AutoPlace:Stop() end,
-    })
-
-    Manager.Register("auto_hatch", {
-        toggle    = hatchToggle,
-        onEnable  = function() AutoHatch:Start() end,
-        onDisable = function() AutoHatch:Stop() end,
+    Manager.Register("auto_train", {
+        toggle    = trainToggle,
+        onEnable  = function() AutoTrain:Start() end,
+        onDisable = function() AutoTrain:Stop() end,
     })
 end
-
