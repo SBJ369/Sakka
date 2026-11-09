@@ -7,6 +7,7 @@ return function(lib, window, Manager, loadModule)
     
     -- Load feature modules
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
+    local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
 
     local options = {
         fields           = {},
@@ -115,6 +116,16 @@ return function(lib, window, Manager, loadModule)
             options.allowedMutations = type(selected) == "table" and selected or {}
         end,
     })
+    
+    local hatchToggle = tab:AddToggle({
+        Text = "Auto Hatch Eggs",
+        Default = false,
+        Note = "Automatically opens eggs from the Growing Eggs menu when they are ready.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_hatch", on)
+        end,
+    })
 
        -- ==========================================
     -- SECTION: Pets
@@ -183,6 +194,12 @@ return function(lib, window, Manager, loadModule)
         toggle    = equipToggle,
         onEnable  = function() AutoEquip:Start() end,
         onDisable = function() AutoEquip:Stop() end,
+    })
+
+    Manager.Register("auto_hatch", {
+        toggle    = hatchToggle,
+        onEnable  = function() AutoHatch:Start() end,
+        onDisable = function() AutoHatch:Stop() end,
     })
 end
 
