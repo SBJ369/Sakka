@@ -143,12 +143,31 @@ return function(lib, window, Manager, loadModule)
             end
         end,
     })
+
+    
     -- ==========================================
-    -- SECTION: Speed (Placeholder for now)
+    -- SECTION: Speed
     -- ==========================================
     tab:AddSection("Speed")
-    
-    tab:AddLabel("Auto Train coming soon.")
+
+    local AutoTrain = loadModule("features/farming/auto_train.lua")({ lib = lib, Env = Env })
+
+    local trainToggle = tab:AddToggle({
+        Text = "Auto Train (Treadmill)",
+        Default = false,
+        Note = "Walks to your treadmill and stands on it. Jumps off when disabled.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_train", on)
+        end,
+    })
+
+    -- Register with Manager at the bottom
+    Manager.Register("auto_train", {
+        toggle    = trainToggle,
+        onEnable  = function() AutoTrain:Start() end,
+        onDisable = function() AutoTrain:Stop() end,
+    })
 
     -- ==========================================
     -- MANAGER REGISTRATION
