@@ -1,14 +1,27 @@
 -- games/features/farming/auto_hatch.lua
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 return function(ctx)
     local lib = ctx and ctx.lib
+    local LocalPlayer = Players.LocalPlayer
     local M = {}
 
     local running = false
     local thread
+
+    local Remotes, EggState
+    local function loadDeps()
+        if Remotes then return true end
+        local ok, r = pcall(function()
+            Remotes = require(ReplicatedStorage.Shared.Remotes)
+            EggState = require(ReplicatedStorage.Client.EggState)
+        end)
+        if not ok then
+            if lib then lib:Notify({ Title = "Auto Hatch", Content = "Failed to load modules.", Duration = 3 }) end
+        end
+        return ok
+    end
 
     local function log(msg)
         if lib and lib.Notify then
@@ -17,44 +30,44 @@ return function(ctx)
         warn("[autohatch] " .. tostring(msg))
     end
 
-    local function clickButton(btn)
-        if btn and btn:IsA("GuiButton") then
-            pcall(function() btn:Activated() end)
-            pcall(function() btn.MouseButton1Click:Fire() end)
-            return true
-        end
-        return false
-    end
-
     local function loop()
-        while running do
-            local growingEggsGui = PlayerGui:FindFirstChild("GrowingEggs")
-            
-            if growingEggsGui then
-                local frame = growingEggsGui:FindFirstChild("Frame")
-                if frame then
-                    -- Look for the "Open" buttons in the egg list
-                    local clickedAny = false
-                    for _, v in ipairs(frame:GetDescendants()) do
-                        -- Check if it's a button and its name implies opening/hatching
-                        if v:IsA("GuiButton") and (v.Name == "Open" or v.Name == "Hatch" or v.Name:lower():find("open")) then
-                            -- Ensure it's visible (meaning the egg is ready) and clickable
-                            if v.Visible and v.Active then
-                                clickButton(v)
-                                clickedAny = true
-                            end
-                        end
-                    end
+        if not loadDeps() then return end
 
-                    -- If we clicked something, wait a moment before scanning again
-                    if clickedAny then
-                        task.wait(0.5) 
+        while running do
+            -- 1. Get all owned eggs
+            local ownedEggs = EggState.ReadOwnedEggs()
+            
+            if ownedEggs and #ownedEggs > 0 then
+                for _, record in ipairs(ownedEggs) do
+                    if not running then break end
+                    
+                    -- 2. Check if the egg is placed and grown enough to hatch
+                    if record.Placement and EggState.IsReadyToHatch(record.Uid) then
+                        log("Hatching egg: " .. tostring(record.Uid))
+                        
+                        -- 3. Fire the Hatch remote
+                        local ok, success, err = pcall(function()
+                            return Remotes.EggWorld.AskHatch:InvokeServer(record.Uid)
+                        end)
+                        
+                        if ok and success then
+                            task.wait(0.5) -- Wait for the hatch animation
+                            
+                            -- 4. Fire the FinishHatch remote to claim the pet
+                            pcall(function()
+                                Remotes.EggWorld.AskFinishHatch:InvokeServer(record.Uid)
+                            end)
+                            
+                            task.wait(1) -- Wait before processing the next egg
+                        else
+                            warn("[autohatch] Failed to hatch " .. tostring(record.Uid) .. ": " .. tostring(err))
+                        end
                     end
                 end
             end
             
-            -- Scan every second
-            task.wait(1) 
+            -- Scan every 2 seconds
+            task.wait(2)
         end
     end
 
