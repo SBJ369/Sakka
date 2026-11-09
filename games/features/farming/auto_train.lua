@@ -89,13 +89,7 @@ return function(ctx)
         if not running then return end
         log("On treadmill. Training...")
         
-        -- Jump to land exactly on the belt
-        local hum = humanoid()
-        if hum then
-            hum.Jump = true
-        end
-
-        -- Just stand there and do nothing (the treadmill does the work)
+        -- Just stand there and do nothing (the treadmill pulls us)
         while running do
             task.wait(1)
         end
