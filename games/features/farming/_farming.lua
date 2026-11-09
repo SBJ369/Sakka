@@ -50,6 +50,7 @@ return function(lib, window, Manager, loadModule)
         { label = "Titan Temple",       value = "Titan Temple" },
         { label = "Angels And Demons",  value = "Light Dark" },
         { label = "Enchanted Forest",   value = "Enchanted Forest" },
+        { label = "Alien Planet",       value = "Alien" },
     }
 
     local labels = {}
