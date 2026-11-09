@@ -1,6 +1,6 @@
--- games/features/eggs/carry_loop.lua
+-- games/features/farming/carry_loop.lua
 -- Auto-carry cycle. 
--- 1. Walks to the Z-coordinate of StartArea (keeping current X) to funnel through the entrance.
+-- 1. Walks to the funnel entrance (StartArea).
 -- 2. Walks to the targeted egg in the field.
 -- 3. Carries it back to StartArea center.
 
@@ -173,21 +173,26 @@ return function(ctx)
     end
 
     local function carryOnce()
+        options.isBusy = true
+
         if not options.fields or #options.fields == 0 then
+            options.isBusy = false
             return false, "no fields selected", "soft"
         end
 
         local fp = filterFingerprint()
 
-        -- 1. Find an egg first. If none exist, wait in the safe zone.
         local egg = Finder:Nearest(buildFinderOpts())
         if not egg then 
+            options.isBusy = false
             return false, "no egg matching filters (waiting for respawn)", "soft" 
         end
 
-        -- 2. Walk to the funnel entrance (Z-coordinate of StartArea, keeping current X).
         local sa = startArea()
-        if not sa then return false, "no StartArea found", "hard" end
+        if not sa then 
+            options.isBusy = false
+            return false, "no StartArea found", "hard" 
+        end
         
         local p = pos()
         local entranceTarget = Vector3.new(p.X, p.Y, sa.Position.Z)
@@ -195,16 +200,25 @@ return function(ctx)
         
         if distToEntrance > 15 then
             local okEntrance = walkTo(entranceTarget, 5, 30, fp)
-            if not okEntrance then return false, "walk to funnel entrance timed out", "hard" end
+            if not okEntrance then 
+                options.isBusy = false
+                return false, "walk to funnel entrance timed out", "hard" 
+            end
         end
 
-        -- 3. Walk to the actual egg in the field
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
-        if why == "aborted" then return false, "filter changed", "soft" end
-        if not ok then return false, "walk to egg timed out", "hard" end
+        if why == "aborted" then 
+            options.isBusy = false
+            return false, "filter changed", "soft" 
+        end
+        if not ok then 
+            options.isBusy = false
+            return false, "walk to egg timed out", "hard" 
+        end
 
         local dist = Finder:DistanceTo(egg.uid)
         if not dist or dist > M.CARRY_RANGE + 3 then
+            options.isBusy = false
             return false, "lost range to egg", "soft"
         end
 
@@ -213,7 +227,6 @@ return function(ctx)
             slotKey = AreaEggSlotIdentity.SlotKey(egg.areaId, egg.nestId)
         end
 
-        -- 4. Fire the remote
         local carryStarted = false
         local connStart = Remotes.EggWorld.FieldEggCarry.OnClientEvent:Connect(function(state)
             if state and state.IsCarrying == true then
@@ -227,6 +240,7 @@ return function(ctx)
         })
         if not fired then
             if connStart then pcall(function() connStart:Disconnect() end) end
+            options.isBusy = false
             local e = tostring(err or "")
             if e:find("Already carrying") or e:find("First area egg unavailable") then
                 return false, "carry rejected: " .. e, "soft"
@@ -236,13 +250,16 @@ return function(ctx)
 
         if not waitFor(function() return carryStarted end, M.CARRY_FIRE_TIMEOUT) then
             if connStart then pcall(function() connStart:Disconnect() end) end
+            options.isBusy = false
             return false, "carry never started", "hard"
         end
         if connStart then pcall(function() connStart:Disconnect() end) end
 
-        -- 5. Walk to the StartArea to deliver (Target the exact center of StartArea)
         local humReturn = humanoid()
-        if not humReturn then return false, "no humanoid for return", "hard" end
+        if not humReturn then 
+            options.isBusy = false
+            return false, "no humanoid for return", "hard" 
+        end
 
         local pickupTime = os.clock()
         local carryEnded = false
@@ -299,6 +316,7 @@ return function(ctx)
 
         if returnAborted then
             if connEvent then pcall(function() connEvent:Disconnect() end) end
+            options.isBusy = false
             return false, "filter changed mid-return", "soft"
         end
 
@@ -311,6 +329,7 @@ return function(ctx)
         end
 
         if connEvent then pcall(function() connEvent:Disconnect() end) end
+        options.isBusy = false
 
         local csNow = EggState.ReadCarryState()
         
@@ -376,6 +395,7 @@ return function(ctx)
 
     function M:Stop()
         running = false
+        options.isBusy = false
         local hum = humanoid()
         if hum then pcall(function() hum:Move(Vector3.zero) end) end
         if thread then
@@ -387,6 +407,7 @@ return function(ctx)
 
     getgenv()._ForceStopAutoEgg = function()
         running = false
+        options.isBusy = false
         if thread then pcall(task.cancel, thread) thread = nil end
         local hum = humanoid()
         if hum then pcall(function() hum:Move(Vector3.zero) end) end
