@@ -8,6 +8,7 @@ return function(lib, window, Manager, loadModule)
     -- Load feature modules
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
     local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
+    local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env })
 
     local options = {
         fields           = {},
@@ -116,6 +117,16 @@ return function(lib, window, Manager, loadModule)
             options.allowedMutations = type(selected) == "table" and selected or {}
         end,
     })
+
+    local placeToggle = tab:AddToggle({
+        Text = "Auto Place Eggs",
+        Default = false,
+        Note = "Automatically places unplaced eggs in your plot when you have space.",
+        Callback = function(on)
+            if Manager._suppress then return end
+            Manager.Toggle("auto_place_eggs", on)
+        end,
+    })
     
     local hatchToggle = tab:AddToggle({
         Text = "Auto Hatch Eggs",
@@ -194,6 +205,12 @@ return function(lib, window, Manager, loadModule)
         toggle    = equipToggle,
         onEnable  = function() AutoEquip:Start() end,
         onDisable = function() AutoEquip:Stop() end,
+    })
+
+        Manager.Register("auto_place_eggs", {
+        toggle    = placeToggle,
+        onEnable  = function() AutoPlace:Start() end,
+        onDisable = function() AutoPlace:Stop() end,
     })
 
     Manager.Register("auto_hatch", {
