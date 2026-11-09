@@ -89,9 +89,22 @@ return function(ctx)
         if not running then return end
         log("On treadmill. Training...")
         
-        -- Just stand there and do nothing (the treadmill pulls us)
+        -- Keep the character anchored to the exact treadmill spot
+        -- so it doesn't slide off due to physics
         while running do
-            task.wait(1)
+            local hum = humanoid()
+            local p = pos()
+            if hum and p then
+                local delta = treadmillPos - p
+                local horiz = Vector3.new(delta.X, 0, delta.Z)
+                -- If we drift off the treadmill, move back to the center
+                if horiz.Magnitude > 1 then
+                    hum:Move(horiz.Unit)
+                else
+                    hum:Move(Vector3.zero)
+                end
+            end
+            task.wait(0.1)
         end
     end
 
@@ -109,10 +122,11 @@ return function(ctx)
             thread = nil
         end
         
-        -- JUMP to leave the treadmill!
+        -- JUMP to leave the treadmill
         local hum = humanoid()
         if hum then
             hum:Move(Vector3.zero)
+            task.wait(0.1)
             hum.Jump = true
         end
         log("stopped (jumped off)")
