@@ -115,7 +115,7 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- ==========================================
+       -- ==========================================
     -- SECTION: Pets
     -- ==========================================
     tab:AddSection("Pets")
@@ -130,55 +130,16 @@ return function(lib, window, Manager, loadModule)
         end,
     })
 
-    -- Load Auto Sell
-    local AutoSell = loadModule("features/farming/auto_sell.lua")({ lib = lib })
-
-    -- Variables to store input values
-    local maxWeight = 0
-    local maxValue = 0
-
     tab:AddButton({
         Text = "Sell All Pets",
         Callback = function()
-            AutoSell:SellAll()
-        end,
-    })
-
-    tab:AddButton({
-        Text = "Sell Under Weight",
-        Callback = function()
-            if maxWeight > 0 then
-                AutoSell:SellUnderWeight(maxWeight)
+            local ok, Remotes = pcall(require, game.ReplicatedStorage.Shared.Remotes)
+            if ok and Remotes then
+                Remotes.PetSatchel.SellEveryPet:FireServer()
+                lib:Notify({ Title = "Auto Sell", Content = "Triggered Sell All Pets.", Duration = 3 })
             else
-                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid weight below.", Duration = 3 })
+                lib:Notify({ Title = "Error", Content = "Failed to load Remotes.", Duration = 3 })
             end
-        end,
-    })
-
-    tab:AddTextInput({
-        Text = "Max Weight to Sell (kg)",
-        Placeholder = "e.g. 500",
-        Callback = function(text)
-            maxWeight = tonumber(text) or 0
-        end,
-    })
-
-    tab:AddButton({
-        Text = "Sell Under Value",
-        Callback = function()
-            if maxValue > 0 then
-                AutoSell:SellUnderValue(maxValue)
-            else
-                lib:Notify({ Title = "Auto Sell", Content = "Please enter a valid value below.", Duration = 3 })
-            end
-        end,
-    })
-
-    tab:AddTextInput({
-        Text = "Max Value to Sell ($/s)",
-        Placeholder = "e.g. 1000",
-        Callback = function(text)
-            maxValue = tonumber(text) or 0
         end,
     })
     -- ==========================================
