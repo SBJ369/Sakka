@@ -1,6 +1,7 @@
 -- games/features/farming/auto_place.lua
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 
 return function(ctx)
     local lib = ctx and ctx.lib
@@ -31,6 +32,62 @@ return function(ctx)
         warn("[autoplace] " .. tostring(msg))
     end
 
+    local function hrp()
+        local char = LocalPlayer.Character
+        return char and char:FindFirstChild("HumanoidRootPart")
+    end
+
+    local function humanoid()
+        local char = LocalPlayer.Character
+        return char and char:FindFirstChildOfClass("Humanoid")
+    end
+
+    local function pos()
+        local p = hrp()
+        return p and p.Position
+    end
+
+    -- Smooth walking function
+    local function walkTo(targetPos, distThreshold)
+        local hum = humanoid()
+        if not hum or not targetPos then return false end
+
+        local reached = false
+        local conn = RunService.RenderStepped:Connect(function()
+            if not running or reached then return end
+            local p = pos()
+            if not p then return end
+
+            local delta = targetPos - p
+            local horiz = Vector3.new(delta.X, 0, delta.Z)
+            local dist = horiz.Magnitude
+
+            if dist <= (distThreshold or 5) then
+                hum:Move(Vector3.zero)
+                reached = true
+                if conn then conn:Disconnect() end
+                return
+            end
+
+            -- Decelerate when close
+            if dist < 15 then
+                hum:Move(horiz.Unit * (dist / 15))
+            else
+                hum:Move(horiz.Unit)
+            end
+        end)
+
+        -- Wait up to 30 seconds to arrive
+        local t0 = os.clock()
+        while running and not reached and (os.clock() - t0) < 30 do
+            task.wait(0.1)
+        end
+        
+        if conn then conn:Disconnect() end
+        if hum then hum:Move(Vector3.zero) end
+        return reached
+    end
+
     local function loop()
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
@@ -39,49 +96,43 @@ return function(ctx)
             local plot = PlotState.ResolvePlot()
             if plot then
                 local mySave = Save.Await(LocalPlayer)
-                -- Check if we have unplaced eggs
-                local unplaced = {}
                 local owners = EggState.ReadOwnedEggs()
+                
+                -- 1. Count unplaced eggs and current capacity
+                local unplaced = {}
+                local placedCount = 0
+                
                 for _, owner in ipairs(owners) do
                     if owner.OwnerUserId == LocalPlayer.UserId then
                         for uid, record in pairs(owner.Records) do
                             if not record.Placement then
                                 table.insert(unplaced, { uid = uid, record = record })
+                            else
+                                placedCount = placedCount + 1
                             end
                         end
                     end
                 end
 
-                if #unplaced > 0 then
-                    -- Get plot capacity
-                    local level = mySave and mySave.BaseUpgradeLevel or 0
-                    local cap = Bases.GetAssetEquipCapacity(level) or 10
+                local level = mySave and mySave.BaseUpgradeLevel or 0
+                local cap = Bases.GetAssetEquipCapacity(level) or 10
+                local spaceLeft = cap - placedCount
+
+                -- 2. If we have eggs to place and room for them, walk to plot
+                if #unplaced > 0 and spaceLeft > 0 then
+                    log("Walking to plot to place eggs...")
+                    local centerPos = plot.CenterPoint.Position
                     
-                    -- Count currently placed
-                    local placedCount = 0
-                    for _, owner in ipairs(owners) do
-                        if owner.OwnerUserId == LocalPlayer.UserId then
-                            for uid, record in pairs(owner.Records) do
-                                if record.Placement then
-                                    placedCount = placedCount + 1
-                                end
-                            end
-                        end
-                    end
-
-                    local spaceLeft = cap - placedCount
-                    if spaceLeft > 0 then
-                        -- We have space. Start placing.
+                    if walkTo(centerPos, 10) then
+                        -- We are at the plot, start placing
                         for _, item in ipairs(unplaced) do
-                            if not running then break end
-                            if spaceLeft <= 0 then break end
+                            if not running or spaceLeft <= 0 then break end
 
-                            -- Generate a grid offset based on the number currently placed
+                            -- Generate a grid position
                             local index = placedCount
                             local row = math.floor(index / 3)
                             local col = index % 3
                             
-                            -- Offset from CenterPoint (3 studs apart)
                             local offsetX = (col - 1) * 3
                             local offsetZ = (row - 2) * 3
                             
@@ -98,9 +149,13 @@ return function(ctx)
                             if ok and success then
                                 placedCount = placedCount + 1
                                 spaceLeft = spaceLeft - 1
-                                task.wait(0.5) -- wait for server validation
+                                task.wait(0.5) -- Wait for server to sync
+                            else
+                                print("[autoplace] Failed to place:", err)
                             end
                         end
+                    else
+                        print("[autoplace] Failed to reach plot.")
                     end
                 end
             end
