@@ -85,6 +85,28 @@ return function(ctx)
         return filterFingerprint() ~= fp
     end
 
+        -- Helper to force-jump off a treadmill if stuck
+    local function checkTreadmill()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
+
+        -- Raycast down to see what we are standing on
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = { char }
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+
+        if result and result.Instance then
+            local name = result.Instance.Name:lower()
+            if name:find("tread") or name:find("belt") then
+                hum.Jump = true
+                task.wait(0.5) -- Wait for the jump to register
+            end
+        end
+    end
+
     local function walkTo(target, stopDist, timeout, fp)
         stopDist = stopDist or 4
         timeout = timeout or M.WALK_TIMEOUT
@@ -174,6 +196,7 @@ return function(ctx)
 
     local function carryOnce()
         options.isBusy = true
+        checkTreadmill()
 
         if not options.fields or #options.fields == 0 then
             options.isBusy = false
