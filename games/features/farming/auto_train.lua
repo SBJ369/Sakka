@@ -10,7 +10,7 @@ return function(ctx)
     local M = {}
 
     local running = false
-    local thread
+    local conn
 
     local PlotState = require(ReplicatedStorage.Client.PlotState)
 
@@ -21,15 +21,16 @@ return function(ctx)
         warn("[autotrain] " .. tostring(msg))
     end
 
-    local function loop()
-        -- grab once, with timeouts so a stale character can't freeze us
+    function M:Start()
+        if running then return end
+        running = true
+
         local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-        local hrp = char:FindFirstChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if not hrp then hrp = char:WaitForChild("HumanoidRootPart", 5) end
-        if not hum then hum = char:WaitForChild("Humanoid", 5) end
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart", 5)
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 5)
+        
         if not hrp or not hum then
-            log("Character has no HRP/Humanoid after 5s wait")
+            log("Failed to find Humanoid/HRP")
             running = false
             return
         end
@@ -43,63 +44,51 @@ return function(ctx)
         end
 
         local target = tb.Position
-        print(string.format("[autotrain] starting walk to %s from %s",
-            tostring(target), tostring(hrp.Position)))
-
         local mounted = false
 
-        while running do
+        print("[autotrain] started walking via RenderStepped")
+
+        -- THIS is what the diag script did. Move must be fired on RenderStepped.
+        conn = RunService.RenderStepped:Connect(function()
+            if not running then return end
+
             if options and options.isBusy then
                 mounted = false
                 pcall(function() hum:Move(Vector3.zero) end)
-                task.wait(0.2)
-            else
-                local p = hrp.Position
-                local delta = target - p
-                local horiz = Vector3.new(delta.X, 0, delta.Z)
-                local d = horiz.Magnitude
-
-                if d <= 3 then
-                    if not mounted then
-                        mounted = true
-                        print("[autotrain] Mounted belt.")
-                    end
-                    pcall(function() hum:Move(Vector3.zero) end)
-                else
-                    mounted = false
-                    if d < 15 then
-                        pcall(function() hum:Move(horiz.Unit * (d / 15)) end)
-                    else
-                        pcall(function() hum:Move(horiz.Unit) end)
-                    end
-                end
-                task.wait(0.1)
+                return
             end
-        end
 
-        print("[autotrain] Loop stopped.")
-    end
+            local p = hrp.Position
+            local delta = target - p
+            local horiz = Vector3.new(delta.X, 0, delta.Z)
+            local d = horiz.Magnitude
 
-    function M:Start()
-        if running then return end
-        running = true
-        thread = task.spawn(function()
-            local ok, err = pcall(loop)
-            if not ok then
-                warn("[autotrain] FATAL loop error:", err)
-                log("loop error: " .. tostring(err))
-                running = false
+            if d <= 3 then
+                if not mounted then
+                    mounted = true
+                    print("[autotrain] Mounted belt.")
+                end
+                pcall(function() hum:Move(Vector3.zero) end)
+            else
+                mounted = false
+                if d < 15 then
+                    pcall(function() hum:Move(horiz.Unit * (d / 15)) end)
+                else
+                    pcall(function() hum:Move(horiz.Unit) end)
+                end
             end
         end)
+
         log("started")
     end
 
     function M:Stop()
         running = false
-        if thread then
-            pcall(task.cancel, thread)
-            thread = nil
+        if conn then
+            pcall(function() conn:Disconnect() end)
+            conn = nil
         end
+
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then
