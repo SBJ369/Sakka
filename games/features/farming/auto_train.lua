@@ -12,8 +12,6 @@ return function(ctx)
     local running = false
     local thread
 
-    local STOP_DIST = 3
-
     local PlotState = require(ReplicatedStorage.Client.PlotState)
 
     local function log(msg)
@@ -23,58 +21,52 @@ return function(ctx)
         warn("[autotrain] " .. tostring(msg))
     end
 
-    local function getTreadmillPos()
-        local plot = PlotState.ResolvePlot()
-        if not plot or not plot.PlotFolder then return nil end
-        local tb = plot.PlotFolder:FindFirstChild("TreadmillBottom")
-        if not tb or not tb:IsA("BasePart") then return nil end
-        return tb.Position
-    end
-
-    local function getHRP()
-        local char = LocalPlayer.Character
-        return char and char:FindFirstChild("HumanoidRootPart")
-    end
-
-    local function getHumanoid()
-        local char = LocalPlayer.Character
-        return char and char:FindFirstChildOfClass("Humanoid")
-    end
-
     local function loop()
-        print("[autotrain] Loop started.")
+        -- grab once, exactly like the diag script that proved it works
+        local char = LocalPlayer.Character
+        if not char then
+            char = LocalPlayer.CharacterAdded:Wait()
+        end
+        local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid")
+
+        local plot = PlotState.ResolvePlot()
+        local tb = plot and plot.PlotFolder and plot.PlotFolder:FindFirstChild("TreadmillBottom")
+        if not tb then
+            log("Could not find your treadmill.")
+            running = false
+            return
+        end
+
+        local target = tb.Position
+        print(string.format("[autotrain] starting walk to %s from %s",
+            tostring(target), tostring(hrp.Position)))
+
         local mounted = false
 
         while running do
             if options and options.isBusy then
                 mounted = false
-                local hum = getHumanoid()
-                if hum then hum:Move(Vector3.zero) end
+                pcall(function() hum:Move(Vector3.zero) end)
                 task.wait(0.2)
             else
-                local target = getTreadmillPos()
-                local hrp = getHRP()
-                local hum = getHumanoid()
+                local p = hrp.Position
+                local delta = target - p
+                local horiz = Vector3.new(delta.X, 0, delta.Z)
+                local d = horiz.Magnitude
 
-                if target and hrp and hum then
-                    local p = hrp.Position
-                    local delta = target - p
-                    local horiz = Vector3.new(delta.X, 0, delta.Z)
-                    local d = horiz.Magnitude
-
-                    if d <= STOP_DIST then
-                        if not mounted then
-                            mounted = true
-                            print("[autotrain] Mounted belt.")
-                        end
-                        hum:Move(Vector3.zero)
+                if d <= 3 then
+                    if not mounted then
+                        mounted = true
+                        print("[autotrain] Mounted belt.")
+                    end
+                    pcall(function() hum:Move(Vector3.zero) end)
+                else
+                    mounted = false
+                    if d < 15 then
+                        pcall(function() hum:Move(horiz.Unit * (d / 15)) end)
                     else
-                        mounted = false
-                        if d < 15 then
-                            hum:Move(horiz.Unit * (d / 15))
-                        else
-                            hum:Move(horiz.Unit)
-                        end
+                        pcall(function() hum:Move(horiz.Unit) end)
                     end
                 end
                 task.wait(0.1)
@@ -97,7 +89,8 @@ return function(ctx)
             pcall(task.cancel, thread)
             thread = nil
         end
-        local hum = getHumanoid()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
         if hum then
             pcall(function() hum:Move(Vector3.zero) end)
             pcall(function() hum.Jump = true end)
