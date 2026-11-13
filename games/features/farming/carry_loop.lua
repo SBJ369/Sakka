@@ -120,8 +120,6 @@ return function(ctx)
                 aborted = true
                 return
             end
-            -- REMOVED the isBusy check here. We own the lock when we are running.
-            
             if fp and filterChanged(fp) then
                 pcall(function() hum:Move(Vector3.zero) end)
                 done = true
@@ -206,9 +204,11 @@ return function(ctx)
 
         local egg = Finder:Nearest(buildFinderOpts())
         if not egg then 
+            options.hasAvailableEggs = false
             options.isBusy = false
             return false, "no egg matching filters (waiting for respawn)", "soft" 
         end
+        options.hasAvailableEggs = true
 
         local sa = startArea()
         if not sa then 
@@ -418,6 +418,7 @@ return function(ctx)
     function M:Stop()
         running = false
         options.isBusy = false
+        options.hasAvailableEggs = false
         local hum = humanoid()
         if hum then pcall(function() hum:Move(Vector3.zero) end) end
         if thread then
@@ -430,6 +431,7 @@ return function(ctx)
     getgenv()._ForceStopAutoEgg = function()
         running = false
         options.isBusy = false
+        options.hasAvailableEggs = false
         if thread then pcall(task.cancel, thread) thread = nil end
         local hum = humanoid()
         if hum then pcall(function() hum:Move(Vector3.zero) end) end
