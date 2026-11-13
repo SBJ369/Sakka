@@ -45,38 +45,37 @@ return function(ctx)
         print("[autotrain] Loop started. Treadmill at:", treadmillPos)
 
         while running do
-            -- Check lock (safely handle if options is nil)
             local isBusy = options and options.isBusy
             
             if isBusy then
-                -- Another script (Auto Egg / Auto Place) is working.
-                -- Stand still and wait.
+                print("[autotrain] Busy - waiting")
                 local hum = humanoid()
                 if hum then hum:Move(Vector3.zero) end
                 task.wait(1)
             else
-                -- We have the lock. Walk to the treadmill.
                 local p = pos()
-                if p then
+                local hum = humanoid()
+                
+                if p and hum then
                     local delta = treadmillPos - p
                     local horiz = Vector3.new(delta.X, 0, delta.Z)
                     local dist = horiz.Magnitude
 
+                    -- Print every 1 second so we don't spam the console
+                    if math.random() < 0.05 then 
+                        print(string.format("[autotrain] Dist to treadmill: %.1f", dist))
+                    end
+
                     if dist > 5 then
-                        local hum = humanoid()
-                        if hum then
-                            if dist < 15 then
-                                hum:Move(horiz.Unit * (dist / 15))
-                            else
-                                hum:Move(horiz.Unit)
-                            end
+                        if dist < 15 then
+                            -- Deceleration math
+                            local moveDir = horiz.Unit * (dist / 15)
+                            hum:Move(moveDir)
+                        else
+                            hum:Move(horiz.Unit)
                         end
                     else
-                        -- On the treadmill. Just stand.
-                        local hum = humanoid()
-                        if hum then
-                            hum:Move(Vector3.zero)
-                        end
+                        hum:Move(Vector3.zero)
                     end
                 end
                 task.wait(0.1)
