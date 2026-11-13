@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 return function(ctx)
     local lib = ctx and ctx.lib
     local Env = ctx and ctx.Env
+    local options = ctx and ctx.options
     local LocalPlayer = Players.LocalPlayer
     local M = {}
 
@@ -33,38 +34,6 @@ return function(ctx)
         return p and p.Position
     end
 
-    -- Walk to the treadmill smoothly
-    local function walkTo(targetPos)
-        local hum = humanoid()
-        if not hum or not targetPos then return end
-
-        local done = false
-        local conn = RunService.RenderStepped:Connect(function()
-            if done or not running then return end
-            local p = pos()
-            if not p then return end
-
-            local delta = targetPos - p
-            local horiz = Vector3.new(delta.X, 0, delta.Z)
-            local dist = horiz.Magnitude
-
-            -- Hard stop when very close
-            if dist <= 2 then
-                hum:Move(Vector3.zero)
-                done = true
-                if conn then conn:Disconnect() end
-                return
-            end
-
-            -- Decelerate when close
-            if dist < 15 then
-                hum:Move(horiz.Unit * (dist / 15))
-            else
-                hum:Move(horiz.Unit)
-            end
-        end)
-    end
-
     local function loop()
         local treadmillPos = Env:GetMyTreadmill()
         if not treadmillPos then
@@ -73,35 +42,36 @@ return function(ctx)
             return
         end
 
-        log("Walking to treadmill...")
-        walkTo(treadmillPos)
-
-        -- Wait until we arrive (or timeout)
-        local t0 = os.clock()
-        while running and os.clock() - t0 < 30 do
-            local p = pos()
-            if p and (p - treadmillPos).Magnitude < 5 then
-                break
-            end
-            task.wait(0.5)
-        end
-
-        if not running then return end
-        log("On treadmill. Training...")
-        
-        -- Keep the character anchored to the exact treadmill spot
-        -- so it doesn't slide off due to physics
         while running do
-            local hum = humanoid()
+            -- 1. If another system (Egg/Place) is busy, pause training
+            if options and options.isBusy then
+                task.wait(1)
+                continue
+            end
+
             local p = pos()
-            if hum and p then
+            if p then
                 local delta = treadmillPos - p
                 local horiz = Vector3.new(delta.X, 0, delta.Z)
-                -- If we drift off the treadmill, move back to the center
-                if horiz.Magnitude > 1 then
-                    hum:Move(horiz.Unit)
+                local dist = horiz.Magnitude
+
+                -- 2. If we are far from the treadmill, walk to it
+                if dist > 5 then
+                    local hum = humanoid()
+                    if hum then
+                        -- Decelerate
+                        if dist < 15 then
+                            hum:Move(horiz.Unit * (dist / 15))
+                        else
+                            hum:Move(horiz.Unit)
+                        end
+                    end
                 else
-                    hum:Move(Vector3.zero)
+                    -- 3. We are on the treadmill, hold position
+                    local hum = humanoid()
+                    if hum then
+                        hum:Move(Vector3.zero)
+                    end
                 end
             end
             task.wait(0.1)
@@ -122,11 +92,9 @@ return function(ctx)
             thread = nil
         end
         
-        -- JUMP to leave the treadmill
         local hum = humanoid()
         if hum then
             hum:Move(Vector3.zero)
-            task.wait(0.1)
             hum.Jump = true
         end
         log("stopped (jumped off)")
