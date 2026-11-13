@@ -117,15 +117,14 @@ return function(ctx)
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
 
-        -- Generate a massive grid of potential positions centered around the plot
+        -- Create a dense 7x7 grid (49 slots) sorted by distance from center
         local slots = {}
-        local step = 4
-        for x = -6, 6 do
-            for z = -6, 6 do
+        local step = 3.5
+        for x = -3, 3 do
+            for z = -3, 3 do
                 table.insert(slots, Vector3.new(x * step, 2, z * step))
             end
         end
-        -- Sort slots by distance from center so it fills inwards-out
         table.sort(slots, function(a, b) return a.Magnitude < b.Magnitude end)
 
         while running do
@@ -134,7 +133,7 @@ return function(ctx)
                 continue
             end
 
-            -- Hierarchy: If Auto Egg is on and there are eggs, back off
+            -- If Auto Egg is active and there are eggs, don't steal the lock
             if options.eggActive and options.hasAvailableEggs then
                 task.wait(1)
                 continue
@@ -165,20 +164,6 @@ return function(ctx)
                     end
                 end
 
-                -- Add fixed plot structures to occupied list to avoid clipping
-                local function addStructure(part, size)
-                    if part then
-                        local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(part.Position)
-                        table.insert(occupied, { pos = localPos, size = size })
-                    end
-                end
-                addStructure(plot.PlotFolder:FindFirstChild("TreadmillBottom"), Vector3.new(8, 2, 14))
-                local plotUp = plot.PlotFolder:FindFirstChild("PlotUpgrade")
-                if plotUp and plotUp.PrimaryPart then addStructure(plotUp.PrimaryPart, Vector3.new(4, 4, 4)) end
-                local treadUp = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
-                if treadUp and treadUp.PrimaryPart then addStructure(treadUp.PrimaryPart, Vector3.new(4, 4, 4)) end
-                addStructure(plot.PlotFolder:FindFirstChild("PlotSign"), Vector3.new(4, 4, 4))
-
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - #occupied
@@ -208,7 +193,7 @@ return function(ctx)
                     if walkTo(centerPos, 10) then
                         for _, item in ipairs(unplaced) do
                             if not running or spaceLeft <= 0 then break end
-                            
+
                             local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
                             local newRadius = math.max(newSize.X, newSize.Z) * 0.5
                             local placed = false
@@ -219,31 +204,29 @@ return function(ctx)
                                     local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
                                     local dx = slot.X - occ.pos.X
                                     local dz = slot.Z - occ.pos.Z
-                                    if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius + 1) then
+                                    if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius) then
                                         free = false
                                         break
                                     end
                                 end
-                                
+
                                 if free then
-                                    -- Only pass LocalCFrame, the server handles the world position
                                     local localCFrame = CFrame.new(slot)
                                     local ok, res = pcall(function()
                                         return Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
                                     end)
-                                    
+
                                     if ok and res then
                                         table.insert(occupied, { pos = slot, size = newSize })
                                         spaceLeft = spaceLeft - 1
                                         placed = true
-                                        break -- move to next unplaced egg
+                                        break
                                     else
-                                        -- Server rejected, skip this slot forever
-                                        table.insert(occupied, { pos = slot, size = newSize })
+                                        -- Server rejected, skip slot and try next
                                     end
                                 end
                             end
-                            
+
                             if not placed then
                                 log("Could not find valid space for egg.")
                             end
