@@ -80,8 +80,18 @@ return function(ctx)
         if not hum or not targetPos then return false end
 
         local reached = false
+        local aborted = false
         local conn = RunService.RenderStepped:Connect(function()
             if not running or reached then return end
+            
+            -- ABORT instantly if Auto Egg needs to take over
+            if options.eggActive and options.hasAvailableEggs then
+                aborted = true
+                hum:Move(Vector3.zero)
+                if conn then conn:Disconnect() end
+                return
+            end
+
             local p = pos()
             if not p then return end
 
@@ -104,7 +114,7 @@ return function(ctx)
         end)
 
         local t0 = os.clock()
-        while running and not reached and (os.clock() - t0) < 30 do
+        while running and not reached and not aborted and (os.clock() - t0) < 30 do
             task.wait(0.1)
         end
 
@@ -117,11 +127,10 @@ return function(ctx)
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
 
-        -- Create a massive 11x11 grid (121 slots) sorted by distance from center
         local slots = {}
-        local step = 3.0 -- tight spacing
-        for x = -5, 5 do
-            for z = -5, 5 do
+        local step = 3.0
+        for x = -4, 4 do
+            for z = -4, 4 do
                 table.insert(slots, Vector3.new(x * step, 2, z * step))
             end
         end
@@ -163,28 +172,24 @@ return function(ctx)
                     end
                 end
 
-                -- Add fixed structures like Treadmill to prevent clipping
-                local function addStructure(name, size)
+                local function addStructure(name)
                     local part = plot.PlotFolder:FindFirstChild(name)
-                    if part and part:IsA("BasePart") then
-                        local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(part.Position)
-                        table.insert(occupied, { pos = localPos, size = size })
+                    if part then
+                        if part:IsA("BasePart") then
+                            table.insert(occupied, { pos = plot.CenterPoint.CFrame:PointToObjectSpace(part.Position), size = part.Size })
+                        elseif part:IsA("Model") then
+                            local p = part.PrimaryPart or part:FindFirstChildWhichIsA("BasePart")
+                            if p then
+                                table.insert(occupied, { pos = plot.CenterPoint.CFrame:PointToObjectSpace(p.Position), size = p.Size })
+                            end
+                        end
                     end
                 end
-                addStructure("TreadmillBottom", Vector3.new(9, 2, 14))
-                addStructure("PlotSign", Vector3.new(4, 4, 4))
-                addStructure("SpawnPoint", Vector3.new(4, 4, 4))
-                
-                local plotUp = plot.PlotFolder:FindFirstChild("PlotUpgrade")
-                if plotUp and plotUp.PrimaryPart then
-                    local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(plotUp.PrimaryPart.Position)
-                    table.insert(occupied, { pos = localPos, size = Vector3.new(4,4,4) })
-                end
-                local treadUp = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
-                if treadUp and treadUp.PrimaryPart then
-                    local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(treadUp.PrimaryPart.Position)
-                    table.insert(occupied, { pos = localPos, size = Vector3.new(4,4,4) })
-                end
+                addStructure("TreadmillBottom")
+                addStructure("PlotSign")
+                addStructure("SpawnPoint")
+                addStructure("PlotUpgrade")
+                addStructure("TreadmillUpgrade")
 
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
@@ -204,57 +209,64 @@ return function(ctx)
 
                     local sa = startArea()
                     local pNow = pos()
+                    local walkAborted = false
+                    
                     if sa and pNow then
                         local inSafeZone = pNow.Z > sa.Position.Z
                         if not inSafeZone then
-                            walkTo(Vector3.new(pNow.X, pNow.Y, sa.Position.Z + 10), 5)
+                            walkAborted = not walkTo(Vector3.new(pNow.X, pNow.Y, sa.Position.Z + 10), 5)
                         end
                     end
 
-                    local centerPos = plot.CenterPoint.Position
-                    if walkTo(centerPos, 10) then
-                        for _, item in ipairs(unplaced) do
-                            if not running or spaceLeft <= 0 then break end
+                    if not walkAborted then
+                        local centerPos = plot.CenterPoint.Position
+                        if walkTo(centerPos, 10) then
+                            for _, item in ipairs(unplaced) do
+                                if not running or spaceLeft <= 0 then break end
+                                
+                                if options.eggActive and options.hasAvailableEggs then
+                                    break
+                                end
 
-                            local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
-                            local newRadius = math.max(newSize.X, newSize.Z) * 0.5
-                            local placed = false
+                                local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
+                                local newRadius = math.max(newSize.X, newSize.Z) * 0.5
+                                local placed = false
 
-                            for _, slot in ipairs(slots) do
-                                local free = true
-                                for _, occ in ipairs(occupied) do
-                                    local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
-                                    local dx = slot.X - occ.pos.X
-                                    local dz = slot.Z - occ.pos.Z
-                                    if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius) then
-                                        free = false
-                                        break
+                                for _, slot in ipairs(slots) do
+                                    local free = true
+                                    for _, occ in ipairs(occupied) do
+                                        local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
+                                        local dx = slot.X - occ.pos.X
+                                        local dz = slot.Z - occ.pos.Z
+                                        if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius) then
+                                            free = false
+                                            break
+                                        end
+                                    end
+
+                                    if free then
+                                        local localCFrame = CFrame.new(slot)
+                                        local ok, res = pcall(function()
+                                            return Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
+                                        end)
+
+                                        if ok and res then
+                                            table.insert(occupied, { pos = slot, size = newSize })
+                                            spaceLeft = spaceLeft - 1
+                                            placed = true
+                                            break
+                                        else
+                                            -- Server rejected, mark blocked and continue
+                                            table.insert(occupied, { pos = slot, size = newSize })
+                                        end
                                     end
                                 end
 
-                                if free then
-                                    local localCFrame = CFrame.new(slot)
-                                    local ok, res = pcall(function()
-                                        return Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
-                                    end)
-
-                                    if ok and res then
-                                        -- Success, add to occupied and move to next egg
-                                        table.insert(occupied, { pos = slot, size = newSize })
-                                        spaceLeft = spaceLeft - 1
-                                        placed = true
-                                        break
-                                    else
-                                        -- Server rejected (clipping), mark this specific spot as blocked forever
-                                        table.insert(occupied, { pos = slot, size = newSize })
-                                    end
+                                if not placed then
+                                    log("Could not find valid space for egg.")
                                 end
+                                task.wait(0.5)
                             end
-
-                            if not placed then
-                                log("Could not find valid space for egg.")
-                            end
-                            task.wait(0.5)
                         end
                     end
 
