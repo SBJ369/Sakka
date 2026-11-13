@@ -113,30 +113,29 @@ return function(ctx)
         return reached
     end
 
-    -- Dynamic grid location relative to the center part
-    local function getGridLocalPosition(index, step)
-        local x, z = 0, 0
-        local dx, dz = 0, -1
-        for i = 1, index do
-            if x == z or (x < 0 and x == -z) or (x > 0 and x == 1 - z) then
-                local temp = dx
-                dx = -dz
-                dz = temp
-            end
-            x = x + dx
-            z = z + dz
-        end
-        return Vector3.new(x * step, 2, z * step)
-    end
-
     local function loop()
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
-        
-        local failedPlacements = 0
+
+        -- Generate a massive grid of potential positions centered around the plot
+        local slots = {}
+        local step = 4
+        for x = -6, 6 do
+            for z = -6, 6 do
+                table.insert(slots, Vector3.new(x * step, 2, z * step))
+            end
+        end
+        -- Sort slots by distance from center so it fills inwards-out
+        table.sort(slots, function(a, b) return a.Magnitude < b.Magnitude end)
 
         while running do
             if options and options.isBusy then
+                task.wait(1)
+                continue
+            end
+
+            -- Hierarchy: If Auto Egg is on and there are eggs, back off
+            if options.eggActive and options.hasAvailableEggs then
                 task.wait(1)
                 continue
             end
@@ -155,26 +154,36 @@ return function(ctx)
                             if not record.Placement then
                                 table.insert(unplaced, { uid = uid, record = record })
                             else
-                                -- Save exact local position of already placed eggs
                                 if record.Placement.LocalCFrame then
-                                    table.insert(occupied, record.Placement.LocalCFrame.Position)
+                                    table.insert(occupied, {
+                                        pos = record.Placement.LocalCFrame.Position,
+                                        size = record.BoundsSize or Vector3.new(2,2,2)
+                                    })
                                 end
                             end
                         end
                     end
                 end
 
+                -- Add fixed plot structures to occupied list to avoid clipping
+                local function addStructure(part, size)
+                    if part then
+                        local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(part.Position)
+                        table.insert(occupied, { pos = localPos, size = size })
+                    end
+                end
+                addStructure(plot.PlotFolder:FindFirstChild("TreadmillBottom"), Vector3.new(8, 2, 14))
+                local plotUp = plot.PlotFolder:FindFirstChild("PlotUpgrade")
+                if plotUp and plotUp.PrimaryPart then addStructure(plotUp.PrimaryPart, Vector3.new(4, 4, 4)) end
+                local treadUp = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
+                if treadUp and treadUp.PrimaryPart then addStructure(treadUp.PrimaryPart, Vector3.new(4, 4, 4)) end
+                addStructure(plot.PlotFolder:FindFirstChild("PlotSign"), Vector3.new(4, 4, 4))
+
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - #occupied
 
                 if #unplaced > 0 and spaceLeft > 0 then
-                    -- Auto Egg Priority: If Auto Egg is active and there are eggs, back off.
-                    if options.autoEggEnabled and options.hasAvailableEggs then
-                        task.wait(1)
-                        continue
-                    end
-                    
                     if options.isBusy then
                         task.wait(1)
                         continue
@@ -200,66 +209,49 @@ return function(ctx)
                         for _, item in ipairs(unplaced) do
                             if not running or spaceLeft <= 0 then break end
                             
-                            local bounds = item.record.BoundsSize
-                            local sizeX = bounds and bounds.X or 2
-                            local sizeZ = bounds and bounds.Z or 2
-                            local step = math.max(sizeX, sizeZ) + 1.5
+                            local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
+                            local newRadius = math.max(newSize.X, newSize.Z) * 0.5
+                            local placed = false
 
-                            local success = false
-                            local attempts = 0
-                            local maxAttempts = 50
-                            local currentGridIndex = 0
-
-                            while not success and attempts < maxAttempts do
-                                local targetLocalPos = getGridLocalPosition(currentGridIndex, step)
-                                currentGridIndex = currentGridIndex + 1
-                                
+                            for _, slot in ipairs(slots) do
                                 local free = true
-                                for _, occPos in ipairs(occupied) do
-                                    local horiz = Vector3.new(targetLocalPos.X - occPos.X, 0, targetLocalPos.Z - occPos.Z)
-                                    if horiz.Magnitude < step then
+                                for _, occ in ipairs(occupied) do
+                                    local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
+                                    local dx = slot.X - occ.pos.X
+                                    local dz = slot.Z - occ.pos.Z
+                                    if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius + 1) then
                                         free = false
                                         break
                                     end
                                 end
-
+                                
                                 if free then
-                                    local targetWorld = plot.CenterPoint.CFrame * CFrame.new(targetLocalPos)
-                                    local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(targetWorld)
-
+                                    -- Only pass LocalCFrame, the server handles the world position
+                                    local localCFrame = CFrame.new(slot)
                                     local ok, res = pcall(function()
                                         return Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
                                     end)
                                     
                                     if ok and res then
-                                        success = true
-                                        table.insert(occupied, targetLocalPos)
+                                        table.insert(occupied, { pos = slot, size = newSize })
                                         spaceLeft = spaceLeft - 1
-                                        failedPlacements = 0
-                                        break
+                                        placed = true
+                                        break -- move to next unplaced egg
                                     else
-                                        table.insert(occupied, targetLocalPos) -- Server rejected, skip this spot
+                                        -- Server rejected, skip this slot forever
+                                        table.insert(occupied, { pos = slot, size = newSize })
                                     end
                                 end
-                                attempts = attempts + 1
-                            end
-
-                            if not success then
-                                failedPlacements = failedPlacements + 1
-                                log("Could not find a valid spot for egg.")
                             end
                             
+                            if not placed then
+                                log("Could not find valid space for egg.")
+                            end
                             task.wait(0.5)
                         end
                     end
 
                     options.isBusy = false
-                    
-                    if failedPlacements >= 3 then
-                        log("Too many failed placements. Plot might be full. Waiting 30s...")
-                        task.wait(30)
-                        failedPlacements = 0
-                    end
                 end
             end
             task.wait(1)
