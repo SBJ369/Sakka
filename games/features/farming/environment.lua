@@ -1,4 +1,4 @@
--- games/features/eggs/environment.lua
+-- games/features/farming/environment.lua
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,17 +14,8 @@ return function(ctx)
         SellStand   = Vector3.new(532.5, 70.6, -428.9),
     }
 
-    local myPlotCache = nil
-    local lastPlotFolder = nil
-
     function M:GetMyPlot()
-        local plot = PlotState.ResolvePlot()
-        if not plot then return nil end
-        if plot.PlotFolder ~= lastPlotFolder then
-            myPlotCache = nil
-            lastPlotFolder = plot.PlotFolder
-        end
-        return plot
+        return PlotState.ResolvePlot()
     end
 
     function M:GetMyPlotCenter()
@@ -45,24 +36,9 @@ return function(ctx)
         return nil
     end
 
-        local treadBottom = plot.PlotFolder:FindFirstChild("TreadmillBottom")
-        if treadBottom and treadBottom:IsA("BasePart") then
-            myPlotCache = myPlotCache or {}
-            myPlotCache.Treadmill = treadBottom.Position
-            return treadBottom.Position
-        end
-        return nil
-    end
-
-    -- Get the Treadmill Upgrade Board (TreadmillUpgrade)
     function M:GetMyTreadmillUpgrade()
         local plot = self:GetMyPlot()
         if not plot or not plot.PlotFolder then return nil end
-
-        if myPlotCache and myPlotCache.TreadmillUpgrade then
-            return myPlotCache.TreadmillUpgrade
-        end
-
         local upgradeModel = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
         if not upgradeModel then return nil end
 
@@ -76,23 +52,12 @@ return function(ctx)
             end
         end
 
-        if basePart then
-            myPlotCache = myPlotCache or {}
-            myPlotCache.TreadmillUpgrade = basePart.Position
-            return basePart.Position
-        end
-        return nil
+        return basePart and basePart.Position or nil
     end
 
-    -- Get the Plot Upgrade Board (PlotUpgrade)
     function M:GetMyPlotUpgrade()
         local plot = self:GetMyPlot()
         if not plot or not plot.PlotFolder then return nil end
-
-        if myPlotCache and myPlotCache.PlotUpgrade then
-            return myPlotCache.PlotUpgrade
-        end
-
         local upgradeModel = plot.PlotFolder:FindFirstChild("PlotUpgrade")
         if not upgradeModel then return nil end
 
@@ -106,12 +71,7 @@ return function(ctx)
             end
         end
 
-        if basePart then
-            myPlotCache = myPlotCache or {}
-            myPlotCache.PlotUpgrade = basePart.Position
-            return basePart.Position
-        end
-        return nil
+        return basePart and basePart.Position or nil
     end
 
     function M:GetStaticPoints() return M.STATIC end
