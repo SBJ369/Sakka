@@ -12,6 +12,8 @@ return function(lib, window, Manager, loadModule)
         rarities         = {},
         priority         = "Nearest",
         isBusy           = false,
+        autoEggEnabled   = false,
+        hasAvailableEggs = false,
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
@@ -23,7 +25,7 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    -- Background Hierarchy Controller (lock reset only — jump-off lives in auto_train)
+    -- Background Hierarchy Controller (lock reset only)
     task.spawn(function()
         while true do
             task.wait(1)
@@ -46,6 +48,8 @@ return function(lib, window, Manager, loadModule)
         Note = "Select at least one field below. Loop waits until you do.",
         Callback = function(on)
             if Manager._suppress then return end
+            options.autoEggEnabled = on
+            if not on then options.hasAvailableEggs = false end
             Manager.Toggle("auto_get_egg", on)
         end,
     })
@@ -108,9 +112,9 @@ return function(lib, window, Manager, loadModule)
     tab:AddMultiDropdown({
         Title = "Rarities",
         Note = "Leave empty to allow any rarity. If set, ONLY these tiers will be picked.",
-        Options = {
-            "Common", "Uncommon", "Rare", "Epic", "Legendary",
-            "Mythic", "Cosmic", "Secret", "Eternal", "Divine"
+        Options = { 
+            "Common", "Uncommon", "Rare", "Epic", "Legendary", 
+            "Mythic", "Cosmic", "Secret", "Eternal", "Divine" 
         },
         Default = {},
         DependsOn = eggToggle,
@@ -139,7 +143,7 @@ return function(lib, window, Manager, loadModule)
             Manager.Toggle("auto_place_eggs", on)
         end,
     })
-
+    
     local hatchToggle = tab:AddToggle({
         Text = "Auto Hatch Eggs",
         Default = false,
