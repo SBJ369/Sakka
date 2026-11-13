@@ -55,6 +55,26 @@ return function(ctx)
         return areas and areas:FindFirstChild("StartArea")
     end
 
+    local function checkTreadmill()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then return end
+
+        local rayParams = RaycastParams.new()
+        rayParams.FilterDescendantsInstances = { char }
+        rayParams.FilterType = Enum.RaycastFilterType.Exclude
+        local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+
+        if result and result.Instance then
+            local name = result.Instance.Name:lower()
+            if name:find("tread") or name:find("belt") then
+                hum.Jump = true
+                task.wait(0.5)
+            end
+        end
+    end
+
     local function walkTo(targetPos, distThreshold)
         local hum = humanoid()
         if not hum or not targetPos then return false end
@@ -137,7 +157,8 @@ return function(ctx)
                     
                     -- Hierarchy Rule: Wait 4 seconds of idle time before stepping in
                     if idleTimer >= 4 then
-                        options.isBusy = true -- Lock out Auto Egg while we place
+                        options.isBusy = true
+                        checkTreadmill()
                         log("Taking over to place eggs...")
 
                         -- 3. Pathing: Walk to safe zone first to avoid walls/treadmills
