@@ -35,14 +35,15 @@ return function(ctx)
         return nil
     end
 
-    -- Get the actual Treadmill Belt (TreadmillBottom) where you train
     function M:GetMyTreadmill()
         local plot = self:GetMyPlot()
         if not plot or not plot.PlotFolder then return nil end
-
-        if myPlotCache and myPlotCache.Treadmill then
-            return myPlotCache.Treadmill
+        local treadBottom = plot.PlotFolder:FindFirstChild("TreadmillBottom")
+        if treadBottom and treadBottom:IsA("BasePart") then
+            return treadBottom.Position
         end
+        return nil
+    end
 
         local treadBottom = plot.PlotFolder:FindFirstChild("TreadmillBottom")
         if treadBottom and treadBottom:IsA("BasePart") then
