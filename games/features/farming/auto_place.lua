@@ -113,6 +113,28 @@ return function(ctx)
         return reached
     end
 
+    -- Helper to find a safe grid position that is far enough from placed eggs
+    local function getGridPosition(centerPart, index)
+        -- A circular spiral pattern outwards from the center.
+        -- We use a step of 4.5 studs to ensure spacing larger than egg size.
+        local step = 4.5
+        local x, z = 0, 0
+        local dx, dz = 0, -1
+        
+        -- Generate spiral coordinates
+        for i = 1, index do
+            if x == z or (x < 0 and x == -z) or (x > 0 and x == 1 - z) then
+                local temp = dx
+                dx = -dz
+                dz = temp
+            end
+            x = x + dx
+            z = z + dz
+        end
+        
+        return centerPart.CFrame * CFrame.new(x * step, 2, z * step)
+    end
+
     local function loop()
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
@@ -173,15 +195,15 @@ return function(ctx)
                         if walkTo(centerPos, 10) then
                             for _, item in ipairs(unplaced) do
                                 if not running or spaceLeft <= 0 then break end
-                                local index = placedCount
-                                local row = math.floor(index / 3)
-                                local col = index % 3
-                                local worldPos = plot.CenterPoint.Position + Vector3.new((col - 1) * 3, 2, (row - 2) * 3)
-                                local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(CFrame.new(worldPos))
+                                
+                                -- Get a spiral position that avoids existing eggs
+                                local targetCFrame = getGridPosition(plot.CenterPoint, placedCount)
+                                local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(targetCFrame)
 
                                 pcall(function()
                                     Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
                                 end)
+                                
                                 placedCount = placedCount + 1
                                 spaceLeft = spaceLeft - 1
                                 task.wait(0.5)
