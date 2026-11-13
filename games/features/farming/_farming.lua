@@ -12,8 +12,8 @@ return function(lib, window, Manager, loadModule)
         rarities         = {},
         priority         = "Nearest",
         isBusy           = false,
-        autoEggEnabled   = false,
-        hasAvailableEggs = false,
+        eggActive        = false, -- NEW: Tracks if Auto Get Egg is enabled
+        hasAvailableEggs = false, -- NEW: Tracks if there are eggs to get
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
@@ -25,7 +25,7 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    -- Background Hierarchy Controller (lock reset only)
+    -- Background Hierarchy Controller
     task.spawn(function()
         while true do
             task.wait(1)
@@ -48,7 +48,7 @@ return function(lib, window, Manager, loadModule)
         Note = "Select at least one field below. Loop waits until you do.",
         Callback = function(on)
             if Manager._suppress then return end
-            options.autoEggEnabled = on
+            options.eggActive = on
             if not on then options.hasAvailableEggs = false end
             Manager.Toggle("auto_get_egg", on)
         end,
