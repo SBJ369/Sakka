@@ -113,28 +113,28 @@ return function(ctx)
         return reached
     end
 
-    -- Helper to find a safe grid position (3x3 matrix)
-    local function getGridPosition(centerPart, index)
-        local step = 3.5
-        local row = math.floor(index / 3)
-        local col = index % 3
-        
-        -- center the grid
-        local x = (col - 1) * step
-        local z = (row - 1) * step
-        
-        return centerPart.CFrame * CFrame.new(x, 2, z)
+    -- Dynamic spiral grid calculation based on egg size
+    local function getGridPosition(centerPart, index, step)
+        local x, z = 0, 0
+        local dx, dz = 0, -1
+        for i = 1, index do
+            if x == z or (x < 0 and x == -z) or (x > 0 and x == 1 - z) then
+                local temp = dx
+                dx = -dz
+                dz = temp
+            end
+            x = x + dx
+            z = z + dz
+        end
+        return centerPart.CFrame * CFrame.new(x * step, 2, z * step)
     end
 
     local function loop()
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
 
-        local idleTimer = 0
-
         while running do
             if options and options.isBusy then
-                idleTimer = 0
                 task.wait(1)
                 continue
             end
@@ -164,53 +164,53 @@ return function(ctx)
                 local spaceLeft = cap - placedCount
 
                 if #unplaced > 0 and spaceLeft > 0 then
-                    idleTimer = idleTimer + 1
-
-                    if idleTimer >= 4 then
-                        if options.isBusy then
-                            idleTimer = 0
-                            task.wait(1)
-                            continue
-                        end
-
-                        options.isBusy = true
-                        checkTreadmill()
-                        log("Taking over to place eggs...")
-
-                        local sa = startArea()
-                        local pNow = pos()
-                        if sa and pNow then
-                            local inSafeZone = pNow.Z > sa.Position.Z
-                            if not inSafeZone then
-                                log("Walking to safe zone first...")
-                                walkTo(Vector3.new(pNow.X, pNow.Y, sa.Position.Z + 10), 5)
-                            end
-                        end
-
-                        local centerPos = plot.CenterPoint.Position
-                        log("Walking to plot...")
-                        if walkTo(centerPos, 10) then
-                            for _, item in ipairs(unplaced) do
-                                if not running or spaceLeft <= 0 then break end
-                                
-                                local targetCFrame = getGridPosition(plot.CenterPoint, placedCount)
-                                local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(targetCFrame)
-
-                                pcall(function()
-                                    Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
-                                end)
-                                
-                                placedCount = placedCount + 1
-                                spaceLeft = spaceLeft - 1
-                                task.wait(0.8) -- Slightly longer wait so server registers
-                            end
-                        end
-
-                        idleTimer = 0
-                        options.isBusy = false
+                    -- Grab lock immediately to override Auto Train
+                    if options.isBusy then
+                        task.wait(1)
+                        continue
                     end
-                else
-                    idleTimer = 0
+                    options.isBusy = true
+                    task.wait(0.2) -- Let other scripts (Auto Train) yield
+
+                    checkTreadmill()
+                    log("Taking over to place eggs...")
+
+                    local sa = startArea()
+                    local pNow = pos()
+                    if sa and pNow then
+                        local inSafeZone = pNow.Z > sa.Position.Z
+                        if not inSafeZone then
+                            log("Walking to safe zone first...")
+                            walkTo(Vector3.new(pNow.X, pNow.Y, sa.Position.Z + 10), 5)
+                        end
+                    end
+
+                    local centerPos = plot.CenterPoint.Position
+                    log("Walking to plot...")
+                    if walkTo(centerPos, 10) then
+                        for _, item in ipairs(unplaced) do
+                            if not running or spaceLeft <= 0 then break end
+                            
+                            -- Calculate spacing dynamically from egg size
+                            local bounds = item.record.BoundsSize
+                            local sizeX = bounds and bounds.X or 2
+                            local sizeZ = bounds and bounds.Z or 2
+                            local step = math.max(sizeX, sizeZ) + 1.5
+                            
+                            local targetCFrame = getGridPosition(plot.CenterPoint, placedCount, step)
+                            local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(targetCFrame)
+
+                            pcall(function()
+                                Remotes.EggWorld.AskPlaceEgg:InvokeServer({ Uid = item.uid, LocalCFrame = localCFrame })
+                            end)
+                            
+                            placedCount = placedCount + 1
+                            spaceLeft = spaceLeft - 1
+                            task.wait(0.8) -- Wait for server to register placement
+                        end
+                    end
+
+                    options.isBusy = false
                 end
             end
             task.wait(1)
