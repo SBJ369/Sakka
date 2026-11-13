@@ -117,11 +117,11 @@ return function(ctx)
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
 
-        -- Create a dense 7x7 grid (49 slots) sorted by distance from center
+        -- Create a massive 11x11 grid (121 slots) sorted by distance from center
         local slots = {}
-        local step = 3.5
-        for x = -3, 3 do
-            for z = -3, 3 do
+        local step = 3.0 -- tight spacing
+        for x = -5, 5 do
+            for z = -5, 5 do
                 table.insert(slots, Vector3.new(x * step, 2, z * step))
             end
         end
@@ -133,7 +133,6 @@ return function(ctx)
                 continue
             end
 
-            -- If Auto Egg is active and there are eggs, don't steal the lock
             if options.eggActive and options.hasAvailableEggs then
                 task.wait(1)
                 continue
@@ -164,6 +163,29 @@ return function(ctx)
                     end
                 end
 
+                -- Add fixed structures like Treadmill to prevent clipping
+                local function addStructure(name, size)
+                    local part = plot.PlotFolder:FindFirstChild(name)
+                    if part and part:IsA("BasePart") then
+                        local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(part.Position)
+                        table.insert(occupied, { pos = localPos, size = size })
+                    end
+                end
+                addStructure("TreadmillBottom", Vector3.new(9, 2, 14))
+                addStructure("PlotSign", Vector3.new(4, 4, 4))
+                addStructure("SpawnPoint", Vector3.new(4, 4, 4))
+                
+                local plotUp = plot.PlotFolder:FindFirstChild("PlotUpgrade")
+                if plotUp and plotUp.PrimaryPart then
+                    local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(plotUp.PrimaryPart.Position)
+                    table.insert(occupied, { pos = localPos, size = Vector3.new(4,4,4) })
+                end
+                local treadUp = plot.PlotFolder:FindFirstChild("TreadmillUpgrade")
+                if treadUp and treadUp.PrimaryPart then
+                    local localPos = plot.CenterPoint.CFrame:PointToObjectSpace(treadUp.PrimaryPart.Position)
+                    table.insert(occupied, { pos = localPos, size = Vector3.new(4,4,4) })
+                end
+
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - #occupied
@@ -175,7 +197,7 @@ return function(ctx)
                     end
 
                     options.isBusy = true
-                    task.wait(0.2) -- Let other scripts yield
+                    task.wait(0.2) 
 
                     checkTreadmill()
                     log("Taking over to place eggs...")
@@ -217,12 +239,14 @@ return function(ctx)
                                     end)
 
                                     if ok and res then
+                                        -- Success, add to occupied and move to next egg
                                         table.insert(occupied, { pos = slot, size = newSize })
                                         spaceLeft = spaceLeft - 1
                                         placed = true
                                         break
                                     else
-                                        -- Server rejected, skip slot and try next
+                                        -- Server rejected (clipping), mark this specific spot as blocked forever
+                                        table.insert(occupied, { pos = slot, size = newSize })
                                     end
                                 end
                             end
