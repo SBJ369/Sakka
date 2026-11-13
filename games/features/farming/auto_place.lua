@@ -122,7 +122,6 @@ return function(ctx)
         return reached
     end
 
-    -- Generate a spiral of slots so we can pick as many as needed
     local function getSpiralSlot(index, step)
         local x, z = 0, 0
         local dx, dz = 0, -1
@@ -136,6 +135,12 @@ return function(ctx)
             z = z + dz
         end
         return Vector3.new(x * step, 2, z * step)
+    end
+
+    local function isOverlapping(x, z, sizeX, sizeZ, occPos, occSize)
+        local xDist = math.abs(x - occPos.X)
+        local zDist = math.abs(z - occPos.Z)
+        return (xDist < (sizeX + occSize.X) / 2 + 1) and (zDist < (sizeZ + occSize.Z) / 2 + 1)
     end
 
     local function loop()
@@ -168,7 +173,15 @@ return function(ctx)
                             if not record.Placement then
                                 table.insert(unplaced, { uid = uid, record = record })
                             else
-                                placedEggCount = placedEggCount + 1
+                                -- FIX: Ignore grown eggs so they don't eat up the capacity
+                                local ready = false
+                                local ok, res = pcall(function() return EggState.IsReadyToHatch(uid) end)
+                                if ok then ready = res end
+                                
+                                if not ready then
+                                    placedEggCount = placedEggCount + 1
+                                end
+                                
                                 if record.Placement.LocalCFrame then
                                     table.insert(occupied, {
                                         pos = record.Placement.LocalCFrame.Position,
@@ -201,9 +214,9 @@ return function(ctx)
 
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
-                
-                -- FIX: Only subtract placed eggs from cap, not structures!
                 local spaceLeft = cap - placedEggCount
+
+                print(string.format("[autoplace] Unplaced: %d | Placed: %d | Cap: %d | SpaceLeft: %d", #unplaced, placedEggCount, cap, spaceLeft))
 
                 if #unplaced > 0 and spaceLeft > 0 then
                     if options.isBusy then
@@ -239,20 +252,16 @@ return function(ctx)
                                 end
 
                                 local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
-                                local newRadius = math.max(newSize.X, newSize.Z) * 0.5
                                 local placed = false
                                 
-                                -- Try up to 100 spiral slots
-                                local step = 3.5
-                                for i = 0, 100 do
+                                -- Huge step to spread eggs across the whole plot
+                                local step = 6.0
+                                for i = 0, 150 do
                                     local slot = getSpiralSlot(i, step)
                                     
                                     local free = true
                                     for _, occ in ipairs(occupied) do
-                                        local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
-                                        local dx = slot.X - occ.pos.X
-                                        local dz = slot.Z - occ.pos.Z
-                                        if math.sqrt(dx*dx + dz*dz) < (newRadius + occRadius) then
+                                        if isOverlapping(slot.X, slot.Z, newSize.X, newSize.Z, occ.pos, occ.size) then
                                             free = false
                                             break
                                         end
@@ -268,9 +277,10 @@ return function(ctx)
                                             table.insert(occupied, { pos = slot, size = newSize })
                                             spaceLeft = spaceLeft - 1
                                             placed = true
+                                            print("[autoplace] Successfully placed egg at", tostring(slot))
                                             break
                                         else
-                                            -- Server rejected, mark blocked and continue
+                                            -- Mark blocked
                                             table.insert(occupied, { pos = slot, size = newSize })
                                         end
                                     end
