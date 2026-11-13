@@ -12,6 +12,11 @@ return function(ctx)
     local running = false
     local thread
 
+    -- Mount band: start walking when outside OUTER, stop when inside INNER.
+    -- Hysteresis prevents the ping-pong that was re-issuing Move after mounting.
+    local OUTER_RADIUS = 6
+    local INNER_RADIUS = 3.5
+
     local function log(msg)
         if lib and lib.Notify then
             pcall(function() lib:Notify({ Title = "Auto Train", Content = tostring(msg), Duration = 3 }) end)
@@ -34,6 +39,12 @@ return function(ctx)
         return p and p.Position
     end
 
+    local function xzDist(a, b)
+        local dx = a.X - b.X
+        local dz = a.Z - b.Z
+        return math.sqrt(dx * dx + dz * dz)
+    end
+
     local function loop()
         local treadmillPos = Env:GetMyTreadmill()
         if not treadmillPos then
@@ -43,45 +54,54 @@ return function(ctx)
         end
 
         print("[autotrain] Loop started.")
-        local hasMounted = false
+        local mounted = false
 
         while running do
-            -- We ONLY move if NO other system is busy.
+            -- Refresh treadmill position in case the player rejoined / plot changed
+            treadmillPos = Env:GetMyTreadmill() or treadmillPos
+
             if options and options.isBusy then
-                -- Someone else is working. Reset mount state so we re-walk when free.
-                hasMounted = false
+                -- Hierarchy lock held: pause, release mount, stand still
+                mounted = false
                 local hum = humanoid()
                 if hum then hum:Move(Vector3.zero) end
-                task.wait(1)
+                task.wait(0.2)
             else
                 local p = pos()
                 local hum = humanoid()
-                
+
                 if p and hum then
-                    local dist = (p - treadmillPos).Magnitude
-                    
-                    if dist > 4 then
-                        hasMounted = false
-                        -- Walk to treadmill
+                    local d = xzDist(p, treadmillPos)
+
+                    if mounted and d <= OUTER_RADIUS then
+                        -- Already mounted, still inside the band: do NOT call Move.
+                        -- Standing still lets the belt physics keep us in place.
+                    elseif not mounted and d <= INNER_RADIUS then
+                        -- First time arriving: stop, mark mounted
+                        hum:Move(Vector3.zero)
+                        mounted = true
+                        print("[autotrain] Mounted belt.")
+                    else
+                        -- Outside band: walk toward treadmill
+                        mounted = false
                         local delta = treadmillPos - p
                         local horiz = Vector3.new(delta.X, 0, delta.Z)
-                        if dist < 15 then
-                            hum:Move(horiz.Unit * (dist / 15))
+                        if horiz.Magnitude > 0.1 then
+                            if d < 15 then
+                                hum:Move(horiz.Unit * (d / 15))
+                            else
+                                hum:Move(horiz.Unit)
+                            end
                         else
-                            hum:Move(horiz.Unit)
+                            hum:Move(Vector3.zero)
                         end
-                    else
-                        -- We are on the belt.
-                        if not hasMounted then
-                            hasMounted = true
-                            print("[autotrain] Mounted belt.")
-                        end
-                        -- Do nothing. The game's physics will keep us here.
                     end
                 end
                 task.wait(0.1)
             end
         end
+
+        print("[autotrain] Loop stopped.")
     end
 
     function M:Start()
@@ -97,11 +117,12 @@ return function(ctx)
             pcall(task.cancel, thread)
             thread = nil
         end
-        
+
+        -- Single, authoritative jump-off. Background controller no longer does this.
         local hum = humanoid()
         if hum then
-            hum:Move(Vector3.zero)
-            hum.Jump = true
+            pcall(function() hum:Move(Vector3.zero) end)
+            pcall(function() hum.Jump = true end)
         end
         log("stopped (jumped off)")
     end
