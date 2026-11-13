@@ -113,26 +113,17 @@ return function(ctx)
         return reached
     end
 
-    -- Helper to find a safe grid position that is far enough from placed eggs
+    -- Helper to find a safe grid position (tight 3-wide matrix)
     local function getGridPosition(centerPart, index)
-        -- A circular spiral pattern outwards from the center.
-        -- We use a step of 4.5 studs to ensure spacing larger than egg size.
-        local step = 4.5
-        local x, z = 0, 0
-        local dx, dz = 0, -1
+        local step = 2.5 -- reduced from 4.5 to prevent overshooting the base
+        local row = math.floor(index / 3)
+        local col = index % 3
         
-        -- Generate spiral coordinates
-        for i = 1, index do
-            if x == z or (x < 0 and x == -z) or (x > 0 and x == 1 - z) then
-                local temp = dx
-                dx = -dz
-                dz = temp
-            end
-            x = x + dx
-            z = z + dz
-        end
+        -- center the grid slightly
+        local x = (col - 1) * step
+        local z = (row - 1) * step
         
-        return centerPart.CFrame * CFrame.new(x * step, 2, z * step)
+        return centerPart.CFrame * CFrame.new(x, 2, z)
     end
 
     local function loop()
@@ -176,6 +167,13 @@ return function(ctx)
                     idleTimer = idleTimer + 1
 
                     if idleTimer >= 4 then
+                        -- Try to take the lock. If someone else has it, abort.
+                        if options.isBusy then
+                            idleTimer = 0
+                            task.wait(1)
+                            continue
+                        end
+
                         options.isBusy = true
                         checkTreadmill()
                         log("Taking over to place eggs...")
@@ -196,7 +194,6 @@ return function(ctx)
                             for _, item in ipairs(unplaced) do
                                 if not running or spaceLeft <= 0 then break end
                                 
-                                -- Get a spiral position that avoids existing eggs
                                 local targetCFrame = getGridPosition(plot.CenterPoint, placedCount)
                                 local localCFrame = plot.CenterPoint.CFrame:ToObjectSpace(targetCFrame)
 
