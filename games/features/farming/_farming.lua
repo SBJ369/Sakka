@@ -1,15 +1,11 @@
 return function(lib, window, Manager, loadModule)
     local tab = window:CreateTab("Farming")
 
-    -- Load core modules
     local Finder = loadModule("features/farming/field_egg_finder.lua")({ lib = lib })
     local Env    = loadModule("features/farming/environment.lua")({ lib = lib })
-    
-    -- Load feature modules
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
     local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
     
-    -- We pass the options table into AutoPlace so it can check the lock
     local options = {
         fields           = {},
         allowedMutations = {},
@@ -19,6 +15,7 @@ return function(lib, window, Manager, loadModule)
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
+    local AutoTrain = loadModule("features/farming/auto_train.lua")({ lib = lib, Env = Env, options = options })
 
     local Carry = loadModule("features/farming/carry_loop.lua")({
         lib = lib,
