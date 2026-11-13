@@ -42,35 +42,34 @@ return function(ctx)
             return
         end
 
-        print("[autotrain] Loop started. Treadmill at:", treadmillPos)
+        print("[autotrain] Loop started.")
+        local isOnBelt = false
 
         while running do
-            local isBusy = options and options.isBusy
+            local p = pos()
+            local hum = humanoid()
             
-            if isBusy then
-                print("[autotrain] Busy - waiting")
-                local hum = humanoid()
-                if hum then hum:Move(Vector3.zero) end
-                task.wait(1)
-            else
-                local p = pos()
-                local hum = humanoid()
-                
-                if p and hum then
-                    local delta = treadmillPos - p
-                    local horiz = Vector3.new(delta.X, 0, delta.Z)
-                    local dist = horiz.Magnitude
+            if p and hum then
+                local dist = (Vector3.new(p.X, 0, p.Z) - Vector3.new(treadmillPos.X, 0, treadmillPos.Z)).Magnitude
 
-                    -- Print every 1 second so we don't spam the console
-                    if math.random() < 0.05 then 
-                        print(string.format("[autotrain] Dist to treadmill: %.1f", dist))
+                -- If we are close enough, we are on the belt!
+                if dist <= 4 then
+                    if not isOnBelt then
+                        isOnBelt = true
+                        hum:Move(Vector3.zero)
+                        print("[autotrain] Mounted treadmill. Letting physics take over.")
                     end
-
-                    if dist > 5 then
+                    -- Do NOTHING while on the belt. Let the game do its thing.
+                else
+                    isOnBelt = false
+                    
+                    -- Only walk if no other script is busy
+                    if not (options and options.isBusy) then
+                        local delta = treadmillPos - p
+                        local horiz = Vector3.new(delta.X, 0, delta.Z)
+                        
                         if dist < 15 then
-                            -- Deceleration math
-                            local moveDir = horiz.Unit * (dist / 15)
-                            hum:Move(moveDir)
+                            hum:Move(horiz.Unit * (dist / 15))
                         else
                             hum:Move(horiz.Unit)
                         end
@@ -78,8 +77,8 @@ return function(ctx)
                         hum:Move(Vector3.zero)
                     end
                 end
-                task.wait(0.1)
             end
+            task.wait(0.1)
         end
     end
 
@@ -100,6 +99,7 @@ return function(ctx)
         local hum = humanoid()
         if hum then
             hum:Move(Vector3.zero)
+            -- Jump to dismount
             hum.Jump = true
         end
         log("stopped (jumped off)")
