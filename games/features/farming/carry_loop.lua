@@ -120,17 +120,8 @@ return function(ctx)
                 aborted = true
                 return
             end
-            -- ABORT IMMEDIATELY if another script took the lock!
-            if options.isBusy == false then
-                -- do nothing, we own it.
-            else
-                -- we lost the lock
-                pcall(function() hum:Move(Vector3.zero) end)
-                done = true
-                aborted = true
-                return
-            end
-
+            -- REMOVED the isBusy check here. We own the lock when we are running.
+            
             if fp and filterChanged(fp) then
                 pcall(function() hum:Move(Vector3.zero) end)
                 done = true
@@ -240,7 +231,7 @@ return function(ctx)
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
         if why == "aborted" then 
             options.isBusy = false
-            return false, "filter changed or lock lost", "soft" 
+            return false, "filter changed", "soft" 
         end
         if not ok then 
             options.isBusy = false
