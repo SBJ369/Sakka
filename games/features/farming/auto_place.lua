@@ -113,13 +113,13 @@ return function(ctx)
         return reached
     end
 
-    -- Helper to find a safe grid position (tight 3-wide matrix)
+    -- Helper to find a safe grid position (3x3 matrix)
     local function getGridPosition(centerPart, index)
-        local step = 2.5 -- reduced from 4.5 to prevent overshooting the base
+        local step = 3.5
         local row = math.floor(index / 3)
         local col = index % 3
         
-        -- center the grid slightly
+        -- center the grid
         local x = (col - 1) * step
         local z = (row - 1) * step
         
@@ -167,7 +167,6 @@ return function(ctx)
                     idleTimer = idleTimer + 1
 
                     if idleTimer >= 4 then
-                        -- Try to take the lock. If someone else has it, abort.
                         if options.isBusy then
                             idleTimer = 0
                             task.wait(1)
@@ -203,7 +202,7 @@ return function(ctx)
                                 
                                 placedCount = placedCount + 1
                                 spaceLeft = spaceLeft - 1
-                                task.wait(0.5)
+                                task.wait(0.8) -- Slightly longer wait so server registers
                             end
                         end
 
