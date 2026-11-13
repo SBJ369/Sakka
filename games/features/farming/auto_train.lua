@@ -42,39 +42,45 @@ return function(ctx)
             return
         end
 
+        print("[autotrain] Loop started. Treadmill at:", treadmillPos)
+
         while running do
-            -- 1. If another system (Egg/Place) is busy, pause training
-            if options and options.isBusy then
+            -- Check lock (safely handle if options is nil)
+            local isBusy = options and options.isBusy
+            
+            if isBusy then
+                -- Another script (Auto Egg / Auto Place) is working.
+                -- Stand still and wait.
+                local hum = humanoid()
+                if hum then hum:Move(Vector3.zero) end
                 task.wait(1)
-                continue
-            end
+            else
+                -- We have the lock. Walk to the treadmill.
+                local p = pos()
+                if p then
+                    local delta = treadmillPos - p
+                    local horiz = Vector3.new(delta.X, 0, delta.Z)
+                    local dist = horiz.Magnitude
 
-            local p = pos()
-            if p then
-                local delta = treadmillPos - p
-                local horiz = Vector3.new(delta.X, 0, delta.Z)
-                local dist = horiz.Magnitude
-
-                -- 2. If we are far from the treadmill, walk to it
-                if dist > 5 then
-                    local hum = humanoid()
-                    if hum then
-                        -- Decelerate
-                        if dist < 15 then
-                            hum:Move(horiz.Unit * (dist / 15))
-                        else
-                            hum:Move(horiz.Unit)
+                    if dist > 5 then
+                        local hum = humanoid()
+                        if hum then
+                            if dist < 15 then
+                                hum:Move(horiz.Unit * (dist / 15))
+                            else
+                                hum:Move(horiz.Unit)
+                            end
+                        end
+                    else
+                        -- On the treadmill. Just stand.
+                        local hum = humanoid()
+                        if hum then
+                            hum:Move(Vector3.zero)
                         end
                     end
-                else
-                    -- 3. We are on the treadmill, hold position
-                    local hum = humanoid()
-                    if hum then
-                        hum:Move(Vector3.zero)
-                    end
                 end
+                task.wait(0.1)
             end
-            task.wait(0.1)
         end
     end
 
