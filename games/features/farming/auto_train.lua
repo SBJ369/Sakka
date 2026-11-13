@@ -43,42 +43,44 @@ return function(ctx)
         end
 
         print("[autotrain] Loop started.")
-        local isOnBelt = false
+        local hasMounted = false
 
         while running do
-            local p = pos()
-            local hum = humanoid()
-            
-            if p and hum then
-                local dist = (Vector3.new(p.X, 0, p.Z) - Vector3.new(treadmillPos.X, 0, treadmillPos.Z)).Magnitude
-
-                -- If we are close enough, we are on the belt!
-                if dist <= 4 then
-                    if not isOnBelt then
-                        isOnBelt = true
-                        hum:Move(Vector3.zero)
-                        print("[autotrain] Mounted treadmill. Letting physics take over.")
-                    end
-                    -- Do NOTHING while on the belt. Let the game do its thing.
-                else
-                    isOnBelt = false
+            -- We ONLY move if NO other system is busy.
+            if options and options.isBusy then
+                -- Someone else is working. Reset mount state so we re-walk when free.
+                hasMounted = false
+                local hum = humanoid()
+                if hum then hum:Move(Vector3.zero) end
+                task.wait(1)
+            else
+                local p = pos()
+                local hum = humanoid()
+                
+                if p and hum then
+                    local dist = (p - treadmillPos).Magnitude
                     
-                    -- Only walk if no other script is busy
-                    if not (options and options.isBusy) then
+                    if dist > 4 then
+                        hasMounted = false
+                        -- Walk to treadmill
                         local delta = treadmillPos - p
                         local horiz = Vector3.new(delta.X, 0, delta.Z)
-                        
                         if dist < 15 then
                             hum:Move(horiz.Unit * (dist / 15))
                         else
                             hum:Move(horiz.Unit)
                         end
                     else
-                        hum:Move(Vector3.zero)
+                        -- We are on the belt.
+                        if not hasMounted then
+                            hasMounted = true
+                            print("[autotrain] Mounted belt.")
+                        end
+                        -- Do nothing. The game's physics will keep us here.
                     end
                 end
+                task.wait(0.1)
             end
-            task.wait(0.1)
         end
     end
 
@@ -99,7 +101,6 @@ return function(ctx)
         local hum = humanoid()
         if hum then
             hum:Move(Vector3.zero)
-            -- Jump to dismount
             hum.Jump = true
         end
         log("stopped (jumped off)")
