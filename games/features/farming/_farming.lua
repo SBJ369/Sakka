@@ -23,26 +23,38 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    -- Background Treadmill Escape (Runs silently)
+    -- Background Hierarchy Controller
     task.spawn(function()
         while true do
             task.wait(1)
-            local trainToggleOn = Manager.features["auto_train"] and Manager.features["auto_train"].enabled
             local char = game.Players.LocalPlayer.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
             local hum = char and char:FindFirstChildOfClass("Humanoid")
-            
-            if hrp and hum and not trainToggleOn then
-                -- Raycast downwards to detect if we are standing on a treadmill
-                local rayParams = RaycastParams.new()
-                rayParams.FilterDescendantsInstances = { char }
-                rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
-                
-                if result and result.Instance and (result.Instance.Name:lower():find("tread") or result.Instance.Name:lower():find("belt")) then
-                    -- Jump to escape!
-                    hum.Jump = true
+            if not hum then continue end
+
+            -- 1. Treadmill Escape (if we are on it and not training)
+            local trainToggleOn = Manager.features["auto_train"] and Manager.features["auto_train"].enabled
+            if not trainToggleOn then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = { char }
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+                    
+                    -- Check if we are standing on a treadmill
+                    if result and result.Instance and (result.Instance.Name:lower():find("tread") or result.Instance.Name:lower():find("belt")) then
+                        hum.Jump = true
+                    end
                 end
+            end
+
+            -- 2. LOCK RESET
+            -- If Auto Get Egg is OFF, and Auto Place is OFF, force the lock to false.
+            local eggOn = Manager.features["auto_get_egg"] and Manager.features["auto_get_egg"].enabled
+            local placeOn = Manager.features["auto_place_eggs"] and Manager.features["auto_place_eggs"].enabled
+            
+            if not eggOn and not placeOn then
+                options.isBusy = false
             end
         end
     end)
