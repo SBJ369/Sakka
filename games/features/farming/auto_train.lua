@@ -51,9 +51,9 @@ return function(ctx)
         conn = RunService.RenderStepped:Connect(function()
             if not running then return end
 
-            -- HIERARCHY FIX: If Auto Get Egg is active, completely disable Auto Train.
-            -- Also yield if another module (like Auto Place) holds the lock.
-            if options and (options.isBusy or options.eggActive) then
+            -- HIERARCHY FIX: Only pause if Auto Egg is active AND there are actually eggs to grab.
+            -- If no eggs are available, let the character train.
+            if options and (options.isBusy or (options.eggActive and options.hasAvailableEggs)) then
                 mounted = false
                 return
             end
