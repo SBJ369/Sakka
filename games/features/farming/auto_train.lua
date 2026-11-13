@@ -51,8 +51,8 @@ return function(ctx)
         conn = RunService.RenderStepped:Connect(function()
             if not running then return end
 
-            -- DEADLOCK & BOUNCE FIX: If Auto Get Egg is active, or another module holds the lock,
-            -- completely yield and do NOT move the character at all.
+            -- HIERARCHY FIX: If Auto Get Egg is active, completely disable Auto Train.
+            -- Also yield if another module (like Auto Place) holds the lock.
             if options and (options.isBusy or options.eggActive) then
                 mounted = false
                 return
