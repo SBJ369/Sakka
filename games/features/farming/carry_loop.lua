@@ -1,9 +1,4 @@
 -- games/features/farming/carry_loop.lua
--- Auto-carry cycle. 
--- 1. Walks to the funnel entrance (StartArea).
--- 2. Walks to the targeted egg in the field.
--- 3. Carries it back to StartArea center.
-
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
@@ -85,14 +80,12 @@ return function(ctx)
         return filterFingerprint() ~= fp
     end
 
-        -- Helper to force-jump off a treadmill if stuck
     local function checkTreadmill()
         local char = LocalPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         local hum = char and char:FindFirstChildOfClass("Humanoid")
         if not hrp or not hum then return end
 
-        -- Raycast down to see what we are standing on
         local rayParams = RaycastParams.new()
         rayParams.FilterDescendantsInstances = { char }
         rayParams.FilterType = Enum.RaycastFilterType.Exclude
@@ -102,7 +95,7 @@ return function(ctx)
             local name = result.Instance.Name:lower()
             if name:find("tread") or name:find("belt") then
                 hum.Jump = true
-                task.wait(0.5) -- Wait for the jump to register
+                task.wait(0.5)
             end
         end
     end
@@ -127,6 +120,17 @@ return function(ctx)
                 aborted = true
                 return
             end
+            -- ABORT IMMEDIATELY if another script took the lock!
+            if options.isBusy == false then
+                -- do nothing, we own it.
+            else
+                -- we lost the lock
+                pcall(function() hum:Move(Vector3.zero) end)
+                done = true
+                aborted = true
+                return
+            end
+
             if fp and filterChanged(fp) then
                 pcall(function() hum:Move(Vector3.zero) end)
                 done = true
@@ -195,6 +199,10 @@ return function(ctx)
     end
 
     local function carryOnce()
+        if options.isBusy then
+            return false, "busy", "soft"
+        end
+
         options.isBusy = true
         checkTreadmill()
 
@@ -232,7 +240,7 @@ return function(ctx)
         local ok, why = walkTo(egg.position, M.CARRY_RANGE, M.WALK_TIMEOUT, fp)
         if why == "aborted" then 
             options.isBusy = false
-            return false, "filter changed", "soft" 
+            return false, "filter changed or lock lost", "soft" 
         end
         if not ok then 
             options.isBusy = false
