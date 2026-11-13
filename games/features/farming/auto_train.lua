@@ -79,7 +79,14 @@ return function(ctx)
     function M:Start()
         if running then return end
         running = true
-        thread = task.spawn(loop)
+        thread = task.spawn(function()
+            local ok, err = pcall(loop)
+            if not ok then
+                warn("[autotrain] FATAL loop error:", err)
+                log("loop error: " .. tostring(err))
+                running = false
+            end
+        end)
         log("started")
     end
 
