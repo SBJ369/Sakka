@@ -7,7 +7,7 @@ local Workspace = game:GetService("Workspace")
 return function(ctx)
     local lib = ctx and ctx.lib
     local Env = ctx and ctx.Env
-    local options = ctx and ctx.options -- Passed from _farming
+    local options = ctx and ctx.options
     local LocalPlayer = Players.LocalPlayer
     local M = {}
 
@@ -107,7 +107,7 @@ return function(ctx)
         while running and not reached and (os.clock() - t0) < 30 do
             task.wait(0.1)
         end
-        
+
         if conn then conn:Disconnect() end
         if hum then hum:Move(Vector3.zero) end
         return reached
@@ -120,7 +120,6 @@ return function(ctx)
         local idleTimer = 0
 
         while running do
-            -- 1. Hierarchy Check: If Auto Egg is busy, wait
             if options and options.isBusy then
                 idleTimer = 0
                 task.wait(1)
@@ -131,10 +130,10 @@ return function(ctx)
             if plot then
                 local mySave = Save.Await(LocalPlayer)
                 local owners = EggState.ReadOwnedEggs()
-                
+
                 local unplaced = {}
                 local placedCount = 0
-                
+
                 for _, owner in ipairs(owners) do
                     if owner.OwnerUserId == LocalPlayer.UserId then
                         for uid, record in pairs(owner.Records) do
@@ -151,31 +150,27 @@ return function(ctx)
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - placedCount
 
-                -- 2. Check if we need to act
                 if #unplaced > 0 and spaceLeft > 0 then
                     idleTimer = idleTimer + 1
-                    
-                    -- Hierarchy Rule: Wait 4 seconds of idle time before stepping in
+
                     if idleTimer >= 4 then
                         options.isBusy = true
                         checkTreadmill()
                         log("Taking over to place eggs...")
 
-                        -- 3. Pathing: Walk to safe zone first to avoid walls/treadmills
                         local sa = startArea()
-                        if sa then
-                            local inSafeZone = pos().Z > sa.Position.Z
+                        local pNow = pos()
+                        if sa and pNow then
+                            local inSafeZone = pNow.Z > sa.Position.Z
                             if not inSafeZone then
                                 log("Walking to safe zone first...")
-                                walkTo(Vector3.new(pos().X, pos().Y, sa.Position.Z + 10), 5)
+                                walkTo(Vector3.new(pNow.X, pNow.Y, sa.Position.Z + 10), 5)
                             end
                         end
 
-                        -- 4. Walk to plot
                         local centerPos = plot.CenterPoint.Position
                         log("Walking to plot...")
                         if walkTo(centerPos, 10) then
-                            -- 5. Place them
                             for _, item in ipairs(unplaced) do
                                 if not running or spaceLeft <= 0 then break end
                                 local index = placedCount
@@ -194,7 +189,7 @@ return function(ctx)
                         end
 
                         idleTimer = 0
-                        options.isBusy = false -- Release lock
+                        options.isBusy = false
                     end
                 else
                     idleTimer = 0
