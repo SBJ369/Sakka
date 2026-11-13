@@ -84,7 +84,6 @@ return function(ctx)
         local conn = RunService.RenderStepped:Connect(function()
             if not running or reached then return end
             
-            -- ABORT instantly if Auto Egg needs to take over
             if options.eggActive and options.hasAvailableEggs then
                 aborted = true
                 hum:Move(Vector3.zero)
@@ -123,18 +122,25 @@ return function(ctx)
         return reached
     end
 
+    -- Generate a spiral of slots so we can pick as many as needed
+    local function getSpiralSlot(index, step)
+        local x, z = 0, 0
+        local dx, dz = 0, -1
+        for i = 1, index do
+            if x == z or (x < 0 and x == -z) or (x > 0 and x == 1 - z) then
+                local temp = dx
+                dx = -dz
+                dz = temp
+            end
+            x = x + dx
+            z = z + dz
+        end
+        return Vector3.new(x * step, 2, z * step)
+    end
+
     local function loop()
         if not loadDeps() then return end
         print("[autoplace] Loop started.")
-
-        local slots = {}
-        local step = 3.0
-        for x = -4, 4 do
-            for z = -4, 4 do
-                table.insert(slots, Vector3.new(x * step, 2, z * step))
-            end
-        end
-        table.sort(slots, function(a, b) return a.Magnitude < b.Magnitude end)
 
         while running do
             if options and options.isBusy then
@@ -154,6 +160,7 @@ return function(ctx)
 
                 local unplaced = {}
                 local occupied = {}
+                local placedEggCount = 0
 
                 for _, owner in ipairs(owners) do
                     if owner.OwnerUserId == LocalPlayer.UserId then
@@ -161,6 +168,7 @@ return function(ctx)
                             if not record.Placement then
                                 table.insert(unplaced, { uid = uid, record = record })
                             else
+                                placedEggCount = placedEggCount + 1
                                 if record.Placement.LocalCFrame then
                                     table.insert(occupied, {
                                         pos = record.Placement.LocalCFrame.Position,
@@ -193,7 +201,9 @@ return function(ctx)
 
                 local level = mySave and mySave.BaseUpgradeLevel or 0
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
-                local spaceLeft = cap - #occupied
+                
+                -- FIX: Only subtract placed eggs from cap, not structures!
+                local spaceLeft = cap - placedEggCount
 
                 if #unplaced > 0 and spaceLeft > 0 then
                     if options.isBusy then
@@ -231,8 +241,12 @@ return function(ctx)
                                 local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
                                 local newRadius = math.max(newSize.X, newSize.Z) * 0.5
                                 local placed = false
-
-                                for _, slot in ipairs(slots) do
+                                
+                                -- Try up to 100 spiral slots
+                                local step = 3.5
+                                for i = 0, 100 do
+                                    local slot = getSpiralSlot(i, step)
+                                    
                                     local free = true
                                     for _, occ in ipairs(occupied) do
                                         local occRadius = math.max(occ.size.X, occ.size.Z) * 0.5
