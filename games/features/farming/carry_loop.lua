@@ -188,27 +188,28 @@ return function(ctx)
     end
 
     local function carryOnce()
+        if not options.fields or #options.fields == 0 then
+            options.hasAvailableEggs = false
+            return false, "no fields selected", "soft"
+        end
+
+        local fp = filterFingerprint()
+
+        -- SCAN FIRST: Find the egg before taking the lock so isBusy doesn't flicker
+        local egg = Finder:Nearest(buildFinderOpts())
+        if not egg then 
+            options.hasAvailableEggs = false
+            return false, "no egg matching filters (waiting for respawn)", "soft" 
+        end
+        options.hasAvailableEggs = true
+
+        -- Now that we have an egg, try to take the lock
         if options.isBusy then
             return false, "busy", "soft"
         end
 
         options.isBusy = true
         checkTreadmill()
-
-        if not options.fields or #options.fields == 0 then
-            options.isBusy = false
-            return false, "no fields selected", "soft"
-        end
-
-        local fp = filterFingerprint()
-
-        local egg = Finder:Nearest(buildFinderOpts())
-        if not egg then 
-            options.hasAvailableEggs = false
-            options.isBusy = false
-            return false, "no egg matching filters (waiting for respawn)", "soft" 
-        end
-        options.hasAvailableEggs = true
 
         local sa = startArea()
         if not sa then 
