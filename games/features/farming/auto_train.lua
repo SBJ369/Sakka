@@ -22,13 +22,17 @@ return function(ctx)
     end
 
     local function loop()
-        -- grab once, exactly like the diag script that proved it works
-        local char = LocalPlayer.Character
-        if not char then
-            char = LocalPlayer.CharacterAdded:Wait()
+        -- grab once, with timeouts so a stale character can't freeze us
+        local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp then hrp = char:WaitForChild("HumanoidRootPart", 5) end
+        if not hum then hum = char:WaitForChild("Humanoid", 5) end
+        if not hrp or not hum then
+            log("Character has no HRP/Humanoid after 5s wait")
+            running = false
+            return
         end
-        local hrp = char:FindFirstChild("HumanoidRootPart") or char:WaitForChild("HumanoidRootPart")
-        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid")
 
         local plot = PlotState.ResolvePlot()
         local tb = plot and plot.PlotFolder and plot.PlotFolder:FindFirstChild("TreadmillBottom")
