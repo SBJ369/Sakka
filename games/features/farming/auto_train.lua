@@ -48,13 +48,13 @@ return function(ctx)
 
         print("[autotrain] started walking via RenderStepped")
 
-        -- THIS is what the diag script did. Move must be fired on RenderStepped.
         conn = RunService.RenderStepped:Connect(function()
             if not running then return end
 
+            -- DEADLOCK FIX: If another module is busy, do NOTHING. Do not send Move(zero).
+            -- Let the other module's RenderStepped take control of the Humanoid.
             if options and options.isBusy then
                 mounted = false
-                pcall(function() hum:Move(Vector3.zero) end)
                 return
             end
 
