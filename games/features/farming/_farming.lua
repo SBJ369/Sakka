@@ -5,13 +5,13 @@ return function(lib, window, Manager, loadModule)
     local Env    = loadModule("features/farming/environment.lua")({ lib = lib })
     local AutoEquip = loadModule("features/farming/auto_equip.lua")({ lib = lib })
     local AutoHatch = loadModule("features/farming/auto_hatch.lua")({ lib = lib })
-    
+
     local options = {
         fields           = {},
         allowedMutations = {},
         rarities         = {},
         priority         = "Nearest",
-        isBusy           = false, -- Hierarchy lock for Auto Get Egg
+        isBusy           = false,
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
@@ -23,36 +23,12 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    -- Background Hierarchy Controller
+    -- Background Hierarchy Controller (lock reset only — jump-off lives in auto_train)
     task.spawn(function()
         while true do
             task.wait(1)
-            local char = game.Players.LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if not hum then continue end
-
-            -- 1. Treadmill Escape (if we are on it and not training)
-            local trainToggleOn = Manager.features["auto_train"] and Manager.features["auto_train"].enabled
-            if not trainToggleOn then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local rayParams = RaycastParams.new()
-                    rayParams.FilterDescendantsInstances = { char }
-                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-                    local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
-                    
-                    -- Check if we are standing on a treadmill
-                    if result and result.Instance and (result.Instance.Name:lower():find("tread") or result.Instance.Name:lower():find("belt")) then
-                        hum.Jump = true
-                    end
-                end
-            end
-
-            -- 2. LOCK RESET
-            -- If Auto Get Egg is OFF, and Auto Place is OFF, force the lock to false.
             local eggOn = Manager.features["auto_get_egg"] and Manager.features["auto_get_egg"].enabled
             local placeOn = Manager.features["auto_place_eggs"] and Manager.features["auto_place_eggs"].enabled
-            
             if not eggOn and not placeOn then
                 options.isBusy = false
             end
@@ -132,9 +108,9 @@ return function(lib, window, Manager, loadModule)
     tab:AddMultiDropdown({
         Title = "Rarities",
         Note = "Leave empty to allow any rarity. If set, ONLY these tiers will be picked.",
-        Options = { 
-            "Common", "Uncommon", "Rare", "Epic", "Legendary", 
-            "Mythic", "Cosmic", "Secret", "Eternal", "Divine" 
+        Options = {
+            "Common", "Uncommon", "Rare", "Epic", "Legendary",
+            "Mythic", "Cosmic", "Secret", "Eternal", "Divine"
         },
         Default = {},
         DependsOn = eggToggle,
@@ -163,7 +139,7 @@ return function(lib, window, Manager, loadModule)
             Manager.Toggle("auto_place_eggs", on)
         end,
     })
-    
+
     local hatchToggle = tab:AddToggle({
         Text = "Auto Hatch Eggs",
         Default = false,
@@ -206,8 +182,6 @@ return function(lib, window, Manager, loadModule)
     -- SECTION: Speed
     -- ==========================================
     tab:AddSection("Speed")
-
-    local AutoTrain = loadModule("features/farming/auto_train.lua")({ lib = lib, Env = Env })
 
     local trainToggle = tab:AddToggle({
         Text = "Auto Train (Treadmill)",
