@@ -12,8 +12,8 @@ return function(lib, window, Manager, loadModule)
         rarities         = {},
         priority         = "Nearest",
         isBusy           = false,
-        eggActive        = false, -- NEW: Tracks if Auto Get Egg is enabled
-        hasAvailableEggs = false, -- NEW: Tracks if there are eggs to get
+        eggActive        = false,
+        hasAvailableEggs = false,
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
@@ -25,14 +25,42 @@ return function(lib, window, Manager, loadModule)
         options = options,
     })
 
-    -- Background Hierarchy Controller
+    -- Background Hierarchy Controller & Treadmill Escape
     task.spawn(function()
         while true do
             task.wait(1)
+            
+            local char = game.Players.LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if not hum then continue end
+
+            local trainOn = Manager.features["auto_train"] and Manager.features["auto_train"].enabled
             local eggOn = Manager.features["auto_get_egg"] and Manager.features["auto_get_egg"].enabled
             local placeOn = Manager.features["auto_place_eggs"] and Manager.features["auto_place_eggs"].enabled
+
+            -- 1. LOCK RESET
             if not eggOn and not placeOn then
                 options.isBusy = false
+            end
+
+            -- 2. TREADMILL ESCAPE
+            -- If Auto Train is ON, let it handle the treadmill. 
+            -- If Auto Train is OFF, check if we are stuck on a treadmill and jump off.
+            if not trainOn then
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterDescendantsInstances = { char }
+                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                    local result = workspace:Raycast(hrp.Position, Vector3.new(0, -5, 0), rayParams)
+                    
+                    if result and result.Instance then
+                        local name = result.Instance.Name:lower()
+                        if name:find("tread") or name:find("belt") then
+                            hum.Jump = true
+                        end
+                    end
+                end
             end
         end
     end)
