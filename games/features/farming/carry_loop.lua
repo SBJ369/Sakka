@@ -13,10 +13,41 @@ return function(ctx)
     local LocalPlayer = Players.LocalPlayer
     local Remotes, EggState, AreaEggSlotIdentity
 
-    -- Safely find the countdown remote
-    local Networking = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Networking")
-    local RE_EggWorld = Networking:WaitForChild("RE/EggWorld")
-    local CountdownRemote = RE_EggWorld:WaitForChild("FieldEggCycleCountdown")
+    -- Safely find the countdown remote in the background to avoid yielding the UI
+    task.spawn(function()
+        local ok, remote = pcall(function()
+            return ReplicatedStorage:WaitForChild("Packages", 10)
+                :WaitForChild("Networking", 10)
+                :WaitForChild("RE/EggWorld", 10)
+                :WaitForChild("FieldEggCycleCountdown", 10)
+        end)
+
+        if ok and remote then
+            remote.OnClientEvent:Connect(function(...)
+                local args = {...}
+                local timeLeft = 0
+                for _, v in ipairs(args) do
+                    if type(v) == "number" and v > 0 then
+                        timeLeft = v
+                        break
+                    end
+                end
+                
+                if timeLeft > 0 then
+                    options.fieldResetting = true
+                    options.resetTimeLeft = timeLeft
+                    if lib and lib.Notify then
+                        pcall(function() lib:Notify({ Title = "Auto Egg", Content = string.format("Field resetting... %.1fs", timeLeft), Duration = 3 }) end)
+                    end
+                else
+                    options.fieldResetting = false
+                    options.resetTimeLeft = 0
+                end
+            end)
+        else
+            warn("[autoegg] Could not find FieldEggCycleCountdown remote.")
+        end
+    end)
 
     local function log(msg)
         if lib and lib.Notify then
@@ -35,30 +66,6 @@ return function(ctx)
         if not ok then log("loadDeps: " .. tostring(err)) end
         return ok
     end
-
-    -- Listen for the reset countdown
-    CountdownRemote.OnClientEvent:Connect(function(...)
-        local args = {...}
-        -- We don't know the exact args, but usually it's (isResetting, timeLeft) or (timeLeft)
-        -- We'll assume if the args contain a number > 0, it's a countdown.
-        local timeLeft = 0
-        for _, v in ipairs(args) do
-            if type(v) == "number" and v > 0 then
-                timeLeft = v
-                break
-            end
-        end
-        
-        if timeLeft > 0 then
-            options.fieldResetting = true
-            options.resetTimeLeft = timeLeft
-            log(string.format("Field reset detected! Waiting %.1fs", timeLeft))
-        else
-            options.fieldResetting = false
-            options.resetTimeLeft = 0
-            log("Field reset finished.")
-        end
-    end)
 
     M.CARRY_RANGE        = 10
     M.WALK_TIMEOUT       = 120
