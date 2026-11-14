@@ -13,22 +13,28 @@ return function(ctx)
     local LocalPlayer = Players.LocalPlayer
     local Remotes, EggState, AreaEggSlotIdentity
 
-    -- Safely find the countdown remote in the background to avoid yielding the UI
+    -- Debug listener for the reset remote
     task.spawn(function()
         local ok, remote = pcall(function()
+            -- Using FindFirstChild to bypass weird folder naming like "RE/EggWorld"
             return ReplicatedStorage:WaitForChild("Packages", 10)
                 :WaitForChild("Networking", 10)
-                :WaitForChild("RE/EggWorld", 10)
-                :WaitForChild("FieldEggCycleCountdown", 10)
+                :FindFirstChild("FieldEggCycleCountdown", true)
         end)
 
         if ok and remote then
+            print("[autoegg] Hooked FieldEggCycleCountdown remote successfully!")
             remote.OnClientEvent:Connect(function(...)
                 local args = {...}
+                print("[autoegg] FieldEggCycleCountdown fired with:", unpack(args))
+                
                 local timeLeft = 0
                 for _, v in ipairs(args) do
                     if type(v) == "number" and v > 0 then
                         timeLeft = v
+                        break
+                    elseif type(v) == "string" and tonumber(v) and tonumber(v) > 0 then
+                        timeLeft = tonumber(v)
                         break
                     end
                 end
