@@ -14,6 +14,8 @@ return function(lib, window, Manager, loadModule)
         isBusy           = false,
         eggActive        = false,
         hasAvailableEggs = false,
+        fieldResetting   = false,
+        resetTimeLeft    = 0,
     }
 
     local AutoPlace = loadModule("features/farming/auto_place.lua")({ lib = lib, Env = Env, options = options })
