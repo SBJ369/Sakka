@@ -173,7 +173,6 @@ return function(ctx)
                             if not record.Placement then
                                 table.insert(unplaced, { uid = uid, record = record })
                             else
-                                -- FIX: Ignore grown eggs so they don't eat up the capacity
                                 local ready = false
                                 local ok, res = pcall(function() return EggState.IsReadyToHatch(uid) end)
                                 if ok then ready = res end
@@ -216,8 +215,6 @@ return function(ctx)
                 local cap = Bases.GetAssetEquipCapacity(level) or 10
                 local spaceLeft = cap - placedEggCount
 
-                print(string.format("[autoplace] Unplaced: %d | Placed: %d | Cap: %d | SpaceLeft: %d", #unplaced, placedEggCount, cap, spaceLeft))
-
                 if #unplaced > 0 and spaceLeft > 0 then
                     if options.isBusy then
                         task.wait(1)
@@ -241,24 +238,21 @@ return function(ctx)
                         end
                     end
 
+                    local placedAny = false
+
                     if not walkAborted then
                         local centerPos = plot.CenterPoint.Position
                         if walkTo(centerPos, 10) then
                             for _, item in ipairs(unplaced) do
                                 if not running or spaceLeft <= 0 then break end
-                                
-                                if options.eggActive and options.hasAvailableEggs then
-                                    break
-                                end
+                                if options.eggActive and options.hasAvailableEggs then break end
 
                                 local newSize = item.record.BoundsSize or Vector3.new(2,2,2)
                                 local placed = false
-                                
-                                -- Huge step to spread eggs across the whole plot
                                 local step = 6.0
+                                
                                 for i = 0, 150 do
                                     local slot = getSpiralSlot(i, step)
-                                    
                                     local free = true
                                     for _, occ in ipairs(occupied) do
                                         if isOverlapping(slot.X, slot.Z, newSize.X, newSize.Z, occ.pos, occ.size) then
@@ -277,10 +271,10 @@ return function(ctx)
                                             table.insert(occupied, { pos = slot, size = newSize })
                                             spaceLeft = spaceLeft - 1
                                             placed = true
+                                            placedAny = true
                                             print("[autoplace] Successfully placed egg at", tostring(slot))
                                             break
                                         else
-                                            -- Mark blocked
                                             table.insert(occupied, { pos = slot, size = newSize })
                                         end
                                     end
@@ -292,6 +286,13 @@ return function(ctx)
                                 task.wait(0.5)
                             end
                         end
+                    end
+
+                    -- FIX: If we placed something, wait 3 seconds while holding the lock.
+                    -- This prevents Auto Train from grabbing the character too early and 
+                    -- allows the server's EggState to update so we don't double-place.
+                    if placedAny then
+                        task.wait(3)
                     end
 
                     options.isBusy = false
