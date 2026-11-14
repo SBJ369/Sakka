@@ -13,6 +13,11 @@ return function(ctx)
     local LocalPlayer = Players.LocalPlayer
     local Remotes, EggState, AreaEggSlotIdentity
 
+    -- Safely find the countdown remote
+    local Networking = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Networking")
+    local RE_EggWorld = Networking:WaitForChild("RE/EggWorld")
+    local CountdownRemote = RE_EggWorld:WaitForChild("FieldEggCycleCountdown")
+
     local function log(msg)
         if lib and lib.Notify then
             pcall(function() lib:Notify({ Title = "Auto Egg", Content = tostring(msg), Duration = 3 }) end)
@@ -30,6 +35,30 @@ return function(ctx)
         if not ok then log("loadDeps: " .. tostring(err)) end
         return ok
     end
+
+    -- Listen for the reset countdown
+    CountdownRemote.OnClientEvent:Connect(function(...)
+        local args = {...}
+        -- We don't know the exact args, but usually it's (isResetting, timeLeft) or (timeLeft)
+        -- We'll assume if the args contain a number > 0, it's a countdown.
+        local timeLeft = 0
+        for _, v in ipairs(args) do
+            if type(v) == "number" and v > 0 then
+                timeLeft = v
+                break
+            end
+        end
+        
+        if timeLeft > 0 then
+            options.fieldResetting = true
+            options.resetTimeLeft = timeLeft
+            log(string.format("Field reset detected! Waiting %.1fs", timeLeft))
+        else
+            options.fieldResetting = false
+            options.resetTimeLeft = 0
+            log("Field reset finished.")
+        end
+    end)
 
     M.CARRY_RANGE        = 10
     M.WALK_TIMEOUT       = 120
@@ -188,6 +217,11 @@ return function(ctx)
     end
 
     local function carryOnce()
+        if options.fieldResetting then
+            options.hasAvailableEggs = false
+            return false, "field resetting", "soft"
+        end
+
         if not options.fields or #options.fields == 0 then
             options.hasAvailableEggs = false
             return false, "no fields selected", "soft"
@@ -195,7 +229,6 @@ return function(ctx)
 
         local fp = filterFingerprint()
 
-        -- SCAN FIRST: Find the egg before taking the lock so isBusy doesn't flicker
         local egg = Finder:Nearest(buildFinderOpts())
         if not egg then 
             options.hasAvailableEggs = false
@@ -203,7 +236,6 @@ return function(ctx)
         end
         options.hasAvailableEggs = true
 
-        -- Now that we have an egg, try to take the lock
         if options.isBusy then
             return false, "busy", "soft"
         end
