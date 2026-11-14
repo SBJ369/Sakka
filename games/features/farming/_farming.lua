@@ -46,8 +46,6 @@ return function(lib, window, Manager, loadModule)
             end
 
             -- 2. TREADMILL ESCAPE
-            -- If Auto Train is ON, let it handle the treadmill. 
-            -- If Auto Train is OFF, check if we are stuck on a treadmill and jump off.
             if not trainOn then
                 local hrp = char and char:FindFirstChild("HumanoidRootPart")
                 if hrp then
